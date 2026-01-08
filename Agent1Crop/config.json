@@ -1,6 +1,6 @@
 {
     "paths": {
-        "uploadDir": "../signup",
+        "uploadDir": "/Users/sourav/Desktop/uploads",
         "outputDir": "../outputs"
     },
     "processing": {
@@ -21,7 +21,7 @@
             "bottomCropPercent": 0.05
         },
         "desktop": {
-            "bottomCropPercent": 0.19
+            "bottomCropPercent": 0.09
         }
     }
 }

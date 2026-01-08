@@ -1,0 +1,17 @@
+{
+    "name": "eduqard-master",
+    "version": "1.0.0",
+    "description": "Master controller for Eduqard Agents",
+    "type": "module",
+    "scripts": {
+        "start": "node master.js",
+        "watch": "node master.js --watch",
+        "crop": "cd Agent1Crop && npm start",
+        "ocr": "cd Agent_qard_ocr && npm start"
+    },
+    "dependencies": {
+        "chokidar": "^4.0.3",
+        "execa": "^9.5.2",
+        "fs-extra": "^11.2.0"
+    }
+}

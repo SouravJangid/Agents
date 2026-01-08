@@ -7,6 +7,10 @@
 
 # Allow this .gitignore file
 !/.gitignore
+!/package.json
+!/package-lock.json
+!/master.js
+!/config.json
 
 # Ignore node_modules in any directory
 **/node_modules/

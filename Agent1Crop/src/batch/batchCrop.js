@@ -32,34 +32,42 @@ export async function batchCropRecursive(
 
         // 2. ZIP file
         if (entry.isFile() && path.extname(entry.name) === ZIP_EXT) {
-            const unzipDir = uploadPath.replace(ZIP_EXT, "");
-            const zipName = path.basename(unzipDir);
+            const unzipDirName = entry.name.replace(ZIP_EXT, "");
+            const unzipDirPath = path.join(currentUploadDir, unzipDirName);
 
-            if (!fs.existsSync(unzipDir)) {
-                unzip(uploadPath, unzipDir);
+            // Check if a directory with the same name already exists to avoid double-processing
+            const folderExists = entries.some(e => e.isDirectory() && e.name === unzipDirName);
+            if (folderExists) {
+                console.log(`Skipping ZIP file because folder already exists: ${entry.name}`);
+                continue;
+            }
+
+            if (!fs.existsSync(unzipDirPath)) {
+                unzip(uploadPath, unzipDirPath);
             }
 
             // Process extracted content
-            await batchCropRecursive(unzipDir, {
-                unzipDir,
-                zipName,
-                relativeBase: path.relative(UPLOAD_ROOT, unzipDir)
+            await batchCropRecursive(unzipDirPath, {
+                unzipDir: unzipDirPath,
+                zipName: unzipDirName,
+                relativeBase: path.relative(UPLOAD_ROOT, unzipDirPath)
             });
 
             // Re-zip cropped output
-            const croppedFolder = path.join(
-                OUTPUT_ROOT,
-                path.relative(UPLOAD_ROOT, unzipDir)
-            );
+            const croppedFolder = path.join(OUTPUT_ROOT, path.relative(UPLOAD_ROOT, unzipDirPath));
+            const outputZipPath = path.join(OUTPUT_ROOT, relativePath);
 
-            const outputZipPath = path.join(
-                OUTPUT_ROOT,
-                `${path.relative(UPLOAD_ROOT, uploadPath)}`
-            );
-
+            console.log(`Zipping result: ${outputZipPath}`);
             zipFolder(croppedFolder, outputZipPath);
 
-            console.log(`Recompressed: ${outputZipPath}`);
+            // Cleanup: Remove the unzipped folders from UPLOAD and OUTPUT directories
+            try {
+                fs.rmSync(unzipDirPath, { recursive: true, force: true }); // UPLOAD cleanup
+                fs.rmSync(croppedFolder, { recursive: true, force: true }); // OUTPUT cleanup
+                console.log(`Cleaned up temporary folders for: ${unzipDirName}`);
+            } catch (err) {
+                console.error(`Cleanup failed: ${err.message}`);
+            }
             continue;
         }
 
@@ -67,6 +75,12 @@ export async function batchCropRecursive(
         if (entry.isFile()) {
             const ext = path.extname(entry.name).toLowerCase();
             if (!VALID_EXT.includes(ext)) continue;
+
+            // Skip if output already exists (Resume feature)
+            if (fs.existsSync(outputPath)) {
+                // console.log(`Skipping (already cropped): ${relativePath}`);
+                continue;
+            }
 
             fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 

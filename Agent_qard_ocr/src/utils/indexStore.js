@@ -2,7 +2,7 @@ import fs from 'fs-extra';
 import path from 'path';
 
 /**
- * Manages the App-Level Keyword Index with AppId/VariantId nesting.
+ * Manages the App-Level Keyword Index with Platform/AppId/VariantId nesting.
  */
 
 function parseFolderName(folderName) {
@@ -28,13 +28,30 @@ function parseFolderName(folderName) {
     };
 }
 
-export async function updateKeywordIndex(indexPath, result, keywords) {
+function getPlatformFromPath(filedir, sourceDir) {
+    const relative = path.relative(sourceDir, filedir);
+    const parts = relative.split(path.sep);
+
+    // If the path is something like "mobile/App Name/Variant", the first part is the platform
+    // We expect "mobile", "web", or "desktop"
+    const platform = parts[0].toLowerCase();
+
+    if (['mobile', 'web', 'desktop'].includes(platform)) {
+        return platform;
+    }
+
+    return "other";
+}
+
+export async function updateKeywordIndex(indexPath, result, keywords, config) {
     let index = {};
 
     if (await fs.pathExists(indexPath)) {
         index = await fs.readJson(indexPath);
     }
 
+    const sourceDir = path.resolve(process.cwd(), config.paths.sourceDir);
+    const platform = getPlatformFromPath(result.filedir, sourceDir);
     const folderName = result.filedir.split(path.sep).pop();
     const { appId, variantId } = parseFolderName(folderName);
 
@@ -46,19 +63,23 @@ export async function updateKeywordIndex(indexPath, result, keywords) {
             index[kw] = {
                 "keyword": match.keyword,
                 "total number of matching": 0,
-                "apps": {}
+                "platforms": {}
             };
         }
 
-        if (!index[kw].apps[appId]) {
-            index[kw].apps[appId] = { "variants": {} };
+        if (!index[kw].platforms[platform]) {
+            index[kw].platforms[platform] = { "apps": {} };
         }
 
-        if (!index[kw].apps[appId].variants[variantId]) {
-            index[kw].apps[appId].variants[variantId] = [];
+        if (!index[kw].platforms[platform].apps[appId]) {
+            index[kw].platforms[platform].apps[appId] = { "variants": {} };
         }
 
-        const variantList = index[kw].apps[appId].variants[variantId];
+        if (!index[kw].platforms[platform].apps[appId].variants[variantId]) {
+            index[kw].platforms[platform].apps[appId].variants[variantId] = [];
+        }
+
+        const variantList = index[kw].platforms[platform].apps[appId].variants[variantId];
         const existingEntry = variantList.find(img => img["images "] === result.imagename);
 
         if (existingEntry) {

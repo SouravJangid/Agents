@@ -1,0 +1,11 @@
+{
+    "paths": {
+        "uploadDir": "/Users/sourav/Desktop/uploads",
+        "agent1Dir": "./Agent1Crop",
+        "agentOcrDir": "./Agent_qard_ocr"
+    },
+    "settings": {
+        "watchDebounceMs": 1000,
+        "watchDepth": 5
+    }
+}

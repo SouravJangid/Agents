@@ -1,7 +1,7 @@
 {
     "paths": {
-        "sourceDir": "/Users/Shared/qard-work/Eduqard/screensdesign.com",
-        "indexFile": "../Files/keyword_index.json"
+        "sourceDir": "../outputs",
+        "indexFile": "../Files/indexing.json"
     },
     "ocr": {
         "keywords": [
