@@ -1,0 +1,16 @@
+# Ignore everything in the root
+/*
+
+# Allow specific folders
+!/Agent1Crop/
+!/Agent_qard_ocr/
+
+# Allow this .gitignore file
+!/.gitignore
+
+# Ignore node_modules in any directory
+**/node_modules/
+
+# Ignore system files
+.DS_Store
+**/ .DS_Store

@@ -1,0 +1,19 @@
+{
+  "name": "agent_qard_ocr",
+  "version": "1.0.0",
+  "description": "OCR Agent for detecting specific keywords in images",
+  "main": "src/runOcr.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/runOcr.js",
+    "dev": "nodemon src/runOcr.js"
+  },
+  "dependencies": {
+    "fs-extra": "^11.2.0",
+    "sharp": "^0.34.5",
+    "tesseract.js": "^7.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.11"
+  }
+}

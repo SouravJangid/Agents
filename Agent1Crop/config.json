@@ -1,0 +1,27 @@
+{
+    "paths": {
+        "uploadDir": "../signup",
+        "outputDir": "../outputs"
+    },
+    "processing": {
+        "validExtensions": [
+            ".jpg",
+            ".jpeg",
+            ".png",
+            ".webp"
+        ],
+        "outputFormat": "png",
+        "quality": 80,
+        "effort": 4,
+        "compressionLevel": 9
+    },
+    "profiles": {
+        "mobile": {
+            "aspectRatioThreshold": 1.6,
+            "bottomCropPercent": 0.05
+        },
+        "desktop": {
+            "bottomCropPercent": 0.19
+        }
+    }
+}

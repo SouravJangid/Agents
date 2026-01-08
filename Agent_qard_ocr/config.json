@@ -1,0 +1,13 @@
+{
+    "paths": {
+        "sourceDir": "/Users/Shared/qard-work/Eduqard/screensdesign.com",
+        "indexFile": "../Files/keyword_index.json"
+    },
+    "ocr": {
+        "keywords": [
+            "mobbin"
+        ],
+        "confidenceThreshold": 0.5,
+        "languages": "eng"
+    }
+}
