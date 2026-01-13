@@ -13,6 +13,7 @@
 !/package-lock.json
 !/master.js
 !/config.json
+!/README.md
 
 # Ignore node_modules in any directory
 **/node_modules/
