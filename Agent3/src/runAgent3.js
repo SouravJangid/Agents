@@ -30,7 +30,10 @@ async function main() {
         sourceDir = path.join(sourceDir, subdirs[0]);
     }
 
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const now = new Date();
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    const istDate = new Date(now.getTime() + istOffset);
+    const timestamp = istDate.toISOString().replace('Z', '').replace(/[:.]/g, '-') + '-IST';
     const workingDir = path.resolve(process.cwd(), '../OutputsDuringWorking/Agent3', timestamp);
     const finalDir = path.resolve(process.cwd(), '../outputs');
 

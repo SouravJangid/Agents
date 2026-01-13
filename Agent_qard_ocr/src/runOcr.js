@@ -27,7 +27,10 @@ async function main() {
     }
 
     // Timestamped output for OCR metadata
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const now = new Date();
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    const istDate = new Date(now.getTime() + istOffset);
+    const timestamp = istDate.toISOString().replace('Z', '').replace(/[:.]/g, '-') + '-IST';
     const outputBase = path.resolve(process.cwd(), '../OutputsDuringWorking/Agent_qard_ocr', timestamp);
     await fs.ensureDir(outputBase);
 

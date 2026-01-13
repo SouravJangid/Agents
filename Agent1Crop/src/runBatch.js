@@ -18,7 +18,10 @@ async function start() {
         return;
     }
 
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const now = new Date();
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    const istDate = new Date(now.getTime() + istOffset);
+    const timestamp = istDate.toISOString().replace('Z', '').replace(/[:.]/g, '-') + '-IST';
     const timestampedOutputDir = path.resolve(process.cwd(), config.paths.outputDir, timestamp);
 
     if (!fs.existsSync(timestampedOutputDir)) {
