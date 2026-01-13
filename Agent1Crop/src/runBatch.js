@@ -1,8 +1,12 @@
+import fs from "fs";
+import path from "path";
 import { batchCropRecursive } from "./batch/batchCrop.js";
-
 import { runCropAgent } from "./agent/cropAgent.js";
 
 async function start() {
+    const configPath = path.resolve(process.cwd(), "config.json");
+    const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+
     const args = process.argv.slice(2);
     const singleFile = args[0];
 
@@ -14,9 +18,18 @@ async function start() {
         return;
     }
 
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const timestampedOutputDir = path.resolve(process.cwd(), config.paths.outputDir, timestamp);
+
+    if (!fs.existsSync(timestampedOutputDir)) {
+        fs.mkdirSync(timestampedOutputDir, { recursive: true });
+    }
+
     console.log("Starting Agent1Crop (Batch Crop)...");
+    console.log(`Output Directory: ${timestampedOutputDir}`);
+
     const startTime = Date.now();
-    await batchCropRecursive();
+    await batchCropRecursive(undefined, timestampedOutputDir);
     const endTime = Date.now();
     const duration = ((endTime - startTime) / 1000).toFixed(2);
     console.log(`Batch Crop complete in ${duration} seconds.`);

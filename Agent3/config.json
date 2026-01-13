@@ -1,0 +1,10 @@
+{
+    "paths": {
+        "indexFile": "../OutputsDuringWorking/indexing.json",
+        "outputDir": "../outputs"
+    },
+    "replacement": {
+        "targetWord": "mobbin",
+        "newWord": "eduqard"
+    }
+}

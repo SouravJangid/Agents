@@ -1,7 +1,7 @@
 {
     "paths": {
-        "sourceDir": "../outputs",
-        "indexFile": "../Files/indexing.json"
+        "sourceDir": "../OutputsDuringWorking/Agent1Crop",
+        "indexFile": "../OutputsDuringWorking/indexing.json"
     },
     "ocr": {
         "keywords": [

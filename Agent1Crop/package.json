@@ -14,11 +14,12 @@
   "license": "ISC",
   "type": "module",
   "dependencies": {
-    "adm-zip": "^0.5.16",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "multer": "^2.0.2",
-    "sharp": "^0.34.5"
+    "sharp": "^0.34.5",
+    "yauzl": "^3.0.0",
+    "yazl": "^2.5.1"
   },
   "devDependencies": {
     "nodemon": "^3.1.11"

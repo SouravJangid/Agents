@@ -4,6 +4,8 @@
 # Allow specific folders
 !/Agent1Crop/
 !/Agent_qard_ocr/
+!/Agent3/
+
 
 # Allow this .gitignore file
 !/.gitignore

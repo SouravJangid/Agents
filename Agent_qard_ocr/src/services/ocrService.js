@@ -1,5 +1,6 @@
 import { createWorker } from 'tesseract.js';
 import { isMatch } from '../utils/normalizationUtils.js';
+import { detectDesign } from '../utils/designDetector.js';
 
 export async function performOCR(imagePath, keywords, languages = 'eng') {
     const worker = await createWorker(languages);
@@ -35,45 +36,48 @@ export async function performOCR(imagePath, keywords, languages = 'eng') {
     const allWords = words.map(w => w.text);
 
     // 1. Line-level matching (High recall for multi-word keywords)
-    data.blocks.forEach(block => {
-        block.paragraphs?.forEach(para => {
-            para.lines?.forEach(line => {
+    for (const block of data.blocks) {
+        if (!block.paragraphs) continue;
+        for (const para of block.paragraphs) {
+            if (!para.lines) continue;
+            for (const line of para.lines) {
                 for (const keyword of keywords) {
                     const matchInfo = isMatch(line.text, keyword);
                     if (matchInfo.match) {
-                        // Calculate average confidence for the line
                         const lineConfidence = line.words?.length > 0
                             ? line.words.reduce((sum, w) => sum + w.confidence, 0) / line.words.length
                             : 0;
 
-                        // Only add if not already matched in this exact line to avoid duplicates
+                        const design = await detectDesign(imagePath, line.bbox);
+
                         matches.push({
                             keyword: keyword,
                             matched_text: line.text,
                             match_type: matchInfo.type,
                             confidence: lineConfidence / 100,
+                            bbox: line.bbox,
+                            design: design
                         });
                     }
                 }
-            });
-        });
-    });
+            }
+        }
+    }
 
     // 2. Word-level matching (Precision for specific words)
-    // We only add if the keyword wasn't already caught at the line level for this position,
-    // but since we are just building a list for the index, duplicates are handled by the indexer anyway.
     for (const word of words) {
         for (const keyword of keywords) {
             const matchInfo = isMatch(word.text, keyword);
 
             if (matchInfo.match) {
-                // To avoid double-counting the EXACT same word/image combo in the same run,
-                // the indexer already handles "alreadyIndexed" check.
+                const design = await detectDesign(imagePath, word.bbox);
                 matches.push({
                     keyword: keyword,
                     matched_text: word.text,
                     match_type: matchInfo.type,
                     confidence: word.confidence / 100,
+                    bbox: word.bbox,
+                    design: design
                 });
             }
         }
@@ -81,8 +85,24 @@ export async function performOCR(imagePath, keywords, languages = 'eng') {
 
     await worker.terminate();
 
+    // De-duplicate matches based on keyword and identical bounding box
+    const uniqueMatches = [];
+    const seen = new Set();
+
+    for (const m of matches) {
+        const bboxKey = m.bbox
+            ? `${m.bbox.x0},${m.bbox.y0},${m.bbox.x1},${m.bbox.y1}`
+            : Math.random().toString();
+        const key = `${m.keyword.toLowerCase()}|${bboxKey}`;
+
+        if (!seen.has(key)) {
+            seen.add(key);
+            uniqueMatches.push(m);
+        }
+    }
+
     return {
-        matches,
+        matches: uniqueMatches,
         all_words: allWords
     };
 }

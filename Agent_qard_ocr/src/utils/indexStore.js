@@ -30,10 +30,9 @@ function parseFolderName(folderName) {
 
 function getPlatformFromPath(filedir, sourceDir) {
     const relative = path.relative(sourceDir, filedir);
-    const parts = relative.split(path.sep);
+    if (!relative || relative === '.') return "other";
 
-    // If the path is something like "mobile/App Name/Variant", the first part is the platform
-    // We expect "mobile", "web", or "desktop"
+    const parts = relative.split(path.sep);
     const platform = parts[0].toLowerCase();
 
     if (['mobile', 'web', 'desktop'].includes(platform)) {
@@ -52,8 +51,12 @@ export async function updateKeywordIndex(indexPath, result, keywords, config) {
 
     const sourceDir = path.resolve(process.cwd(), config.paths.sourceDir);
     const platform = getPlatformFromPath(result.filedir, sourceDir);
-    const folderName = result.filedir.split(path.sep).pop();
-    const { appId, variantId } = parseFolderName(folderName);
+    const folderName = path.basename(result.filedir);
+
+    // If the folder is the sourceDir itself, use a generic name or from relative path
+    const effectiveFolderName = (result.filedir === sourceDir) ? "outputs" : folderName;
+    const { appId, variantId } = parseFolderName(effectiveFolderName);
+    const fullPath = path.resolve(result.filedir, result.imagename);
 
     // Process each keyword match found in the image
     result.keywordMatches.forEach(match => {
@@ -71,6 +74,7 @@ export async function updateKeywordIndex(indexPath, result, keywords, config) {
             index[kw].platforms[platform] = { "apps": {} };
         }
 
+        // Structure: platforms -> platform -> apps -> appId -> variants -> variantId -> [images]
         if (!index[kw].platforms[platform].apps[appId]) {
             index[kw].platforms[platform].apps[appId] = { "variants": {} };
         }
@@ -80,24 +84,43 @@ export async function updateKeywordIndex(indexPath, result, keywords, config) {
         }
 
         const variantList = index[kw].platforms[platform].apps[appId].variants[variantId];
-        const existingEntry = variantList.find(img => img["images "] === result.imagename);
+        let existingEntry = variantList.find(img => img["images "] === result.imagename);
 
-        if (existingEntry) {
-            // If already indexed, check if this new match has higher confidence
-            const newConf = parseFloat(match.confidence.toFixed(2));
-            if (newConf > parseFloat(existingEntry.highest_confidence)) {
-                existingEntry.highest_confidence = match.confidence.toFixed(2);
-                existingEntry.matched_as = match.matched_text; // Prove normalization
-            }
-        } else {
-            // New entry for this image
+        if (!existingEntry) {
             index[kw]["total number of matching"] += 1;
-            variantList.push({
+            existingEntry = {
                 "images ": result.imagename,
-                "highest_confidence": match.confidence.toFixed(2),
-                "matched_as": match.matched_text // Prove normalization
-            });
+                "full_path": fullPath,
+                "highest_confidence": "0.00",
+                "detections": [],
+                "matched_as": ""
+            };
+            variantList.push(existingEntry);
         }
+
+        // Update highest confidence and matched_as if this match is stronger
+        const currentConf = parseFloat(match.confidence.toFixed(2));
+        if (currentConf > parseFloat(existingEntry.highest_confidence)) {
+            existingEntry.highest_confidence = match.confidence.toFixed(2);
+            existingEntry.matched_as = match.matched_text.trim();
+        }
+
+        // Add this detection to the list
+        existingEntry.detections.push({
+            "text": match.matched_text.trim(),
+            "confidence": match.confidence.toFixed(2),
+            "bbox_refined": match.bbox ? {
+                "x": Math.round(match.bbox.x0),
+                "y": Math.round(match.bbox.y0),
+                "w": Math.round(match.bbox.x1 - match.bbox.x0),
+                "h": Math.round(match.bbox.y1 - match.bbox.y0),
+                "x0": Math.round(match.bbox.x0),
+                "y0": Math.round(match.bbox.y0),
+                "x1": Math.round(match.bbox.x1),
+                "y1": Math.round(match.bbox.y1)
+            } : null,
+            "design": match.design
+        });
     });
 
     await fs.outputJson(indexPath, index, { spaces: 2 });

@@ -1,0 +1,14 @@
+{
+    "name": "agent3",
+    "version": "1.0.0",
+    "description": "Text replacement and inpainting agent",
+    "main": "src/runAgent3.js",
+    "type": "module",
+    "scripts": {
+        "start": "node src/runAgent3.js"
+    },
+    "dependencies": {
+        "fs-extra": "^11.2.0",
+        "sharp": "^0.34.5"
+    }
+}
