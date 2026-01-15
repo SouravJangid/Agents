@@ -39,22 +39,19 @@ export async function runCropAgent(inputPath, options = {}) {
 function getCropProfile(metadata) {
     const aspectRatio = metadata.height / metadata.width;
     const { mobile, desktop } = config.profiles;
-    const quality = config.processing.quality;
 
     // Mobile screens are tall
     if (aspectRatio > mobile.aspectRatioThreshold) {
         return {
             type: "mobile",
-            bottomCropPercent: mobile.bottomCropPercent,
-            quality
+            bottomCropPercent: mobile.bottomCropPercent
         };
     }
 
     // Desktop screens are wide
     return {
         type: "desktop",
-        bottomCropPercent: desktop.bottomCropPercent,
-        quality
+        bottomCropPercent: desktop.bottomCropPercent
     };
 }
 

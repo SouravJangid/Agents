@@ -1,6 +1,9 @@
 import fs from 'fs-extra';
 import path from 'path';
 import { runAgent3Batch } from './batch/batchProcess.js';
+import { ProgressLogger } from './utils/progressLogger.js';
+
+const progressLogger = new ProgressLogger('Agent3');
 
 async function main() {
     const configPath = path.resolve(process.cwd(), 'config.json');
@@ -10,32 +13,23 @@ async function main() {
     }
 
     const config = await fs.readJson(configPath);
+    await progressLogger.init();
 
-    // Find latest indexing file
-    let indexPath = path.resolve(process.cwd(), config.paths.indexFile);
-    const latestIndexing = path.resolve(process.cwd(), '../OutputsDuringWorking/latest_indexing.json');
-    if (await fs.pathExists(latestIndexing)) {
-        indexPath = latestIndexing;
-    }
+    // Always source from the latest indexing results
+    const indexPath = path.resolve(process.cwd(), '../OutputsDuringWorking/latest_indexing.json');
 
-    // Find latest source directory (Agent1Crop output)
-    let sourceDir = path.resolve(process.cwd(), '../OutputsDuringWorking/Agent1Crop');
-    const subdirs = (await fs.readdir(sourceDir, { withFileTypes: true }))
-        .filter(d => d.isDirectory())
-        .map(d => d.name)
-        .sort()
-        .reverse();
+    // Always source images from the latest Agent1Crop output
+    const sourceDir = path.resolve(process.cwd(), '../OutputsDuringWorking/Agent1Crop/latest');
 
-    if (subdirs.length > 0) {
-        sourceDir = path.join(sourceDir, subdirs[0]);
-    }
+    // Working directory: Maintain only latest data
+    const workingDir = path.resolve(process.cwd(), '../OutputsDuringWorking/Agent3/latest');
 
-    const now = new Date();
-    const istOffset = 5.5 * 60 * 60 * 1000;
-    const istDate = new Date(now.getTime() + istOffset);
-    const timestamp = istDate.toISOString().replace('Z', '').replace(/[:.]/g, '-') + '-IST';
-    const workingDir = path.resolve(process.cwd(), '../OutputsDuringWorking/Agent3', timestamp);
+    // We don't empty directory here if we want to resume
+    await fs.ensureDir(workingDir);
+
+    // Final delivery directory
     const finalDir = path.resolve(process.cwd(), '../outputs');
+    await fs.ensureDir(finalDir);
 
     const activeConfig = {
         ...config,
@@ -49,9 +43,12 @@ async function main() {
     };
 
     try {
-        await runAgent3Batch(activeConfig);
+        await progressLogger.addRunEntry({ action: "start_batch" });
+        await runAgent3Batch(activeConfig, progressLogger);
+        await progressLogger.addRunEntry({ action: "complete_batch", status: "success" });
     } catch (err) {
         console.error("Fatal error in Agent3:", err);
+        await progressLogger.addRunEntry({ action: "complete_batch", status: "failed", error: err.message });
         process.exit(1);
     }
 }

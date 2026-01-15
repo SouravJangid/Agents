@@ -2,11 +2,9 @@ import sharp from "sharp";
 import fs from "fs";
 import path from "path";
 
-const config = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), "config.json"), "utf-8"));
-
 /**
- * Crops bottom portion of image (percentage-based)
- * and converts result to the configured format (e.g., PNG, WebP)
+ * Crops bottom portion of image (percentage-based).
+ * Performs a straight crop without adjusting quality settings.
  */
 export async function processImage(
     inputPath,
@@ -34,27 +32,9 @@ export async function processImage(
     // Ensure output directory exists
     fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 
-    let processor = image.extract(cropRegion);
-
-    const format = config.processing.outputFormat?.toLowerCase() || 'png';
-
-    if (format === 'png') {
-        processor = processor.png({
-            compressionLevel: config.processing.compressionLevel ?? 9,
-            effort: config.processing.effort ?? 4
-        });
-    } else if (format === 'webp') {
-        processor = processor.webp({
-            quality: options.quality ?? config.processing.quality,
-            effort: config.processing.effort ?? 4
-        });
-    } else if (format === 'jpg' || format === 'jpeg') {
-        processor = processor.jpeg({
-            quality: options.quality ?? config.processing.quality
-        });
-    }
-
-    await processor.toFile(outputPath);
+    // Extract regions and save directly to file
+    // This performs the crop while maintaining standard format-specific defaults
+    await image.extract(cropRegion).toFile(outputPath);
 
     return outputPath;
 }

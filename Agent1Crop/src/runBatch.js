@@ -1,14 +1,21 @@
-import fs from "fs";
+import fs from "fs-extra";
 import path from "path";
 import { batchCropRecursive } from "./batch/batchCrop.js";
 import { runCropAgent } from "./agent/cropAgent.js";
+import { ProgressLogger } from "./utils/progressLogger.js";
+
+// Initialize logger for this agent
+const progressLogger = new ProgressLogger('Agent1Crop');
 
 async function start() {
     const configPath = path.resolve(process.cwd(), "config.json");
-    const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+    const config = await fs.readJson(configPath);
 
     const args = process.argv.slice(2);
     const singleFile = args[0];
+
+    // Initialize/Load progress logs
+    await progressLogger.init();
 
     if (singleFile) {
         console.log(`Processing single file: ${singleFile}`);
@@ -18,21 +25,25 @@ async function start() {
         return;
     }
 
-    const now = new Date();
-    const istOffset = 5.5 * 60 * 60 * 1000;
-    const istDate = new Date(now.getTime() + istOffset);
-    const timestamp = istDate.toISOString().replace('Z', '').replace(/[:.]/g, '-') + '-IST';
-    const timestampedOutputDir = path.resolve(process.cwd(), config.paths.outputDir, timestamp);
-
-    if (!fs.existsSync(timestampedOutputDir)) {
-        fs.mkdirSync(timestampedOutputDir, { recursive: true });
-    }
+    // Output Management: Maintain only the latest data
+    const outputRootDir = path.resolve(process.cwd(), config.paths.outputDir);
+    const latestOutputDir = path.join(outputRootDir, "latest");
+    await fs.ensureDir(latestOutputDir);
 
     console.log("Starting Agent1Crop (Batch Crop)...");
-    console.log(`Output Directory: ${timestampedOutputDir}`);
+    console.log(`Output Directory: ${latestOutputDir}`);
 
     const startTime = Date.now();
-    await batchCropRecursive(undefined, timestampedOutputDir);
+
+    try {
+        await progressLogger.addRunEntry({ action: "start_batch" });
+        await batchCropRecursive(undefined, latestOutputDir, 0, { appName: null, variantName: null }, progressLogger);
+        await progressLogger.addRunEntry({ action: "complete_batch", status: "success" });
+    } catch (err) {
+        console.error("Batch processing failed:", err.message);
+        await progressLogger.addRunEntry({ action: "complete_batch", status: "failed", error: err.message });
+    }
+
     const endTime = Date.now();
     const duration = ((endTime - startTime) / 1000).toFixed(2);
     console.log(`Batch Crop complete in ${duration} seconds.`);

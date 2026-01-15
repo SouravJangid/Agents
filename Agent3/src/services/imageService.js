@@ -71,6 +71,7 @@ export async function processImageReplacement(imagePath, detections, config) {
     const svgInpaint = `<svg width="${metadata.width}" height="${metadata.height}" xmlns="http://www.w3.org/2000/svg">${inpaintLayers.join('\n')}</svg>`;
     const inpaintedBuffer = await sharp(imagePath)
         .composite([{ input: Buffer.from(svgInpaint), top: 0, left: 0 }])
+        .png({ compressionLevel: 0, effort: 1, palette: false })
         .toBuffer();
 
     // Create Final Replaced Buffer
@@ -80,6 +81,7 @@ export async function processImageReplacement(imagePath, detections, config) {
     </svg>`;
     const replacedBuffer = await sharp(imagePath)
         .composite([{ input: Buffer.from(svgFinal), top: 0, left: 0 }])
+        .png({ compressionLevel: 0, effort: 1, palette: false })
         .toBuffer();
 
     return {

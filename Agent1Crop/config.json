@@ -1,6 +1,6 @@
 {
     "paths": {
-        "uploadDir": "../uploads",
+        "uploadDir": "/Users/sourav/Desktop/trial/source/apps",
         "outputDir": "../OutputsDuringWorking/Agent1Crop"
     },
     "processing": {
@@ -10,10 +10,7 @@
             ".png",
             ".webp"
         ],
-        "outputFormat": "png",
-        "quality": 80,
-        "effort": 4,
-        "compressionLevel": 9
+        "outputFormat": "png"
     },
     "profiles": {
         "mobile": {
