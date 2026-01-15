@@ -8,20 +8,40 @@ import { ProgressLogger } from "./utils/progressLogger.js";
 const progressLogger = new ProgressLogger('Agent1Crop');
 
 async function start() {
+    // 0. Detect Workspace Root
+    const cwd = process.cwd();
+    let workspaceRoot = path.resolve(cwd, "..");
+    if (fs.existsSync(path.join(cwd, "config.json")) && !fs.existsSync(path.join(cwd, "src"))) {
+        // If config.json exists here but no 'src', we might be in the root (legacy check)
+        // But usually agents have src. The most reliable check is:
+        if (fs.existsSync(path.join(cwd, "Agent1Crop"))) {
+            workspaceRoot = cwd;
+        }
+    } else if (fs.existsSync(path.join(cwd, "../Agent1Crop"))) {
+        workspaceRoot = path.resolve(cwd, "..");
+    }
+
     // 1. Load Local Config (Always present)
-    const localConfigPath = path.resolve(process.cwd(), "config.json");
-    const config = await fs.readJson(localConfigPath);
+    const localConfigPath = path.join(fs.existsSync(path.join(cwd, "config.json")) ? cwd : path.join(cwd, "Agent1Crop"), "config.json");
+    // Actually, we usually run from the agent folder.
+    const config = await fs.readJson(path.resolve(cwd, "config.json"));
 
     // 2. Load Root Config for Routing (Optional Override)
-    const rootConfigPath = path.resolve(process.cwd(), "../config.json");
+    const rootConfigPath = path.join(workspaceRoot, "config.json");
     let rootConfig = null;
     if (await fs.pathExists(rootConfigPath)) {
         rootConfig = await fs.readJson(rootConfigPath);
     }
 
     // 3. Define Routing: Root overrides Local
-    const uploadDir = path.resolve(process.cwd(), rootConfig ? rootConfig.pipeline.uploadDir : config.paths.uploadDir);
-    const workingRoot = path.resolve(process.cwd(), rootConfig ? rootConfig.pipeline.workingDir : "../OutputsDuringWorking");
+    const uploadDir = rootConfig
+        ? path.resolve(workspaceRoot, rootConfig.pipeline.uploadDir)
+        : path.resolve(workspaceRoot, config.paths.uploadDir);
+
+    const workingRoot = rootConfig
+        ? path.resolve(workspaceRoot, rootConfig.pipeline.workingDir)
+        : path.resolve(workspaceRoot, config.paths.outputDir, "..");
+
     const outputRootDir = path.join(workingRoot, "Agent1Crop");
     const latestOutputDir = path.join(outputRootDir, "latest");
 
@@ -43,6 +63,7 @@ async function start() {
 
     console.log("Starting Agent1Crop (Batch Crop)...");
     console.log(`Source Directory: ${uploadDir}`);
+    console.log(`Working Directory: ${workingRoot}`);
     console.log(`Output Directory: ${latestOutputDir}`);
 
     const startTime = Date.now();

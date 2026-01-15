@@ -7,45 +7,45 @@ import { ProgressLogger } from './utils/progressLogger.js';
 const progressLogger = new ProgressLogger('Agent_qard_ocr');
 
 async function main() {
-    // 1. Load Local Config
-    const localConfigPath = path.resolve(process.cwd(), 'config.json');
-    if (!(await fs.pathExists(localConfigPath))) {
-        console.error("Local config.json not found!");
-        process.exit(1);
+    // 0. Workspace Root Detection
+    const cwd = process.cwd();
+    let workspaceRoot = path.resolve(cwd, '..');
+    if (fs.existsSync(path.join(cwd, 'Agent1Crop')) && fs.existsSync(path.join(cwd, 'config.json'))) {
+        workspaceRoot = cwd;
     }
-    const config = await fs.readJson(localConfigPath);
+
+    // 1. Load Local Config
+    const config = await fs.readJson(path.resolve(cwd, 'config.json'));
 
     // 2. Load Root Config (Optional)
-    const rootConfigPath = path.resolve(process.cwd(), '../config.json');
+    const rootConfigPath = path.join(workspaceRoot, 'config.json');
     let rootConfig = null;
-    if (await fs.pathExists(rootConfigPath)) {
+    if (workspaceRoot !== cwd && fs.existsSync(rootConfigPath)) {
         rootConfig = await fs.readJson(rootConfigPath);
     }
 
     await progressLogger.init();
 
     // 3. Define Routing: Root overrides Local
-    const workingRoot = path.resolve(process.cwd(), rootConfig ? rootConfig.pipeline.workingDir : "../OutputsDuringWorking");
+    const workingRoot = rootConfig
+        ? path.resolve(workspaceRoot, rootConfig.pipeline.workingDir)
+        : path.resolve(workspaceRoot, 'OutputsDuringWorking');
 
     // Source comes from the output of Agent1Crop
-    const resolvedSourceDir = rootConfig
-        ? path.join(workingRoot, 'Agent1Crop/latest')
-        : path.resolve(process.cwd(), config.paths.sourceDir);
+    const resolvedSourceDir = path.join(workingRoot, 'Agent1Crop/latest');
 
     // Output based on workingDir
-    const outputBase = rootConfig
-        ? path.join(workingRoot, 'Agent_qard_ocr/latest')
-        : path.resolve(process.cwd(), config.paths.outputDir, 'latest');
-
+    const outputBase = path.join(workingRoot, 'Agent_qard_ocr/latest');
     await fs.ensureDir(outputBase);
 
     const indexPath = path.join(outputBase, 'indexing.json');
 
-    // Root latest_indexing.json location
+    // Shared index location
     const latestPath = path.join(workingRoot, 'latest_indexing.json');
 
     console.log("Starting Agent_qard_ocr...");
     console.log(`Source Directory: ${resolvedSourceDir}`);
+    console.log(`Working Directory: ${workingRoot}`);
     console.log(`Index File: ${indexPath}`);
 
     if (!(await fs.pathExists(resolvedSourceDir))) {

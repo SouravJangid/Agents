@@ -8,11 +8,26 @@ class ProgressLogger {
         this.variants = {};
         this.runs = [];
 
-        // Find root config to resolve logs path
-        const rootConfigPath = path.resolve(process.cwd(), '../config.json');
-        const rootConfig = fs.readJsonSync(rootConfigPath);
+        // Find default logs location relative to this agent
+        const localLogsDir = path.resolve(process.cwd(), '../logs/index');
 
-        this.logsDir = path.resolve(process.cwd(), '..', rootConfig.pipeline.logsDir, 'index');
+        // Try to find root config for override
+        const rootConfigPath = path.resolve(process.cwd(), '../config.json');
+        let logsDir = localLogsDir;
+
+        try {
+            if (fs.existsSync(rootConfigPath)) {
+                const rootConfig = fs.readJsonSync(rootConfigPath);
+                if (rootConfig.pipeline && rootConfig.pipeline.logsDir) {
+                    logsDir = path.resolve(process.cwd(), '..', rootConfig.pipeline.logsDir, 'index');
+                }
+            }
+        } catch (err) {
+            // Fallback to local logs dir if root config is invalid or missing
+            logsDir = localLogsDir;
+        }
+
+        this.logsDir = logsDir;
         this.appsFile = path.join(this.logsDir, 'apps.json');
         this.variantsFile = path.join(this.logsDir, 'variants.json');
         this.runsFile = path.join(this.logsDir, 'runs.json');
@@ -32,6 +47,7 @@ class ProgressLogger {
     }
 
     async save() {
+        await fs.ensureDir(this.logsDir);
         await fs.outputJson(this.appsFile, this.apps, { spaces: 2 });
         await fs.outputJson(this.variantsFile, this.variants, { spaces: 2 });
         await fs.outputJson(this.runsFile, this.runs, { spaces: 2 });

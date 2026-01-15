@@ -2,14 +2,21 @@ import fs from 'fs-extra';
 import path from 'path';
 
 async function showStatus() {
-    const rootConfigPath = path.resolve(process.cwd(), './config.json');
-    if (!await fs.pathExists(rootConfigPath)) {
-        console.error("Root config.json not found!");
-        return;
-    }
-    const rootConfig = await fs.readJson(rootConfigPath);
+    const cwd = process.cwd();
+    // In this root script, workspaceRoot is just cwd
+    const workspaceRoot = cwd;
 
-    const logsDir = path.resolve(process.cwd(), rootConfig.pipeline.logsDir, 'index');
+    const rootConfigPath = path.resolve(cwd, './config.json');
+    let logsDir;
+
+    if (await fs.pathExists(rootConfigPath)) {
+        const rootConfig = await fs.readJson(rootConfigPath);
+        logsDir = path.resolve(workspaceRoot, rootConfig.pipeline.logsDir, 'index');
+    } else {
+        // Fallback to default logs dir
+        logsDir = path.resolve(workspaceRoot, 'logs/index');
+    }
+
     const appsFile = path.join(logsDir, 'apps.json');
     const variantsFile = path.join(logsDir, 'variants.json');
     const runsFile = path.join(logsDir, 'runs.json');
