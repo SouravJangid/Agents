@@ -14,9 +14,10 @@ if (!fs.existsSync(configPath)) {
 const config = fs.readJsonSync(configPath);
 
 // Paths
-const UPLOAD_DIR = path.resolve(config.paths.uploadDir);
-const AGENT1_DIR = path.resolve(__dirname, config.paths.agent1Dir);
-const AGENT_OCR_DIR = path.resolve(__dirname, config.paths.agentOcrDir);
+const UPLOAD_DIR = path.resolve(config.pipeline.uploadDir);
+const AGENT1_DIR = path.resolve(__dirname, './Agent1Crop');
+const AGENT_OCR_DIR = path.resolve(__dirname, './Agent_qard_ocr');
+const AGENT3_DIR = path.resolve(__dirname, './Agent3');
 
 async function runCrop() {
     console.log("\n--- Running Agent1Crop ---");
@@ -36,12 +37,22 @@ async function runOCR() {
     }
 }
 
+async function runReplacement() {
+    console.log("\n--- Running Agent3 (Text Replacement) ---");
+    try {
+        await execa('npm', ['start'], { cwd: AGENT3_DIR, stdio: 'inherit' });
+    } catch (err) {
+        console.error("Agent3 failed:", err.message);
+    }
+}
+
 async function runFullPipeline() {
     console.log("\n🚀 Starting Full Agent Pipeline...");
     const start = Date.now();
 
     await runCrop();
     await runOCR();
+    await runReplacement();
 
     const duration = ((Date.now() - start) / 1000).toFixed(2);
     console.log(`\n✅ Pipeline complete in ${duration}s`);

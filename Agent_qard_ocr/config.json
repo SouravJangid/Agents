@@ -1,7 +1,8 @@
 {
     "paths": {
-        "sourceDir": "../OutputsDuringWorking/Agent1Crop",
-        "indexFile": "../OutputsDuringWorking/indexing.json"
+        "sourceDir": "../OutputsDuringWorking/Agent1Crop/latest",
+        "outputDir": "../OutputsDuringWorking/Agent_qard_ocr",
+        "logsDir": "../logs"
     },
     "ocr": {
         "keywords": [

@@ -8,8 +8,22 @@ import { ProgressLogger } from "./utils/progressLogger.js";
 const progressLogger = new ProgressLogger('Agent1Crop');
 
 async function start() {
-    const configPath = path.resolve(process.cwd(), "config.json");
-    const config = await fs.readJson(configPath);
+    // 1. Load Local Config (Always present)
+    const localConfigPath = path.resolve(process.cwd(), "config.json");
+    const config = await fs.readJson(localConfigPath);
+
+    // 2. Load Root Config for Routing (Optional Override)
+    const rootConfigPath = path.resolve(process.cwd(), "../config.json");
+    let rootConfig = null;
+    if (await fs.pathExists(rootConfigPath)) {
+        rootConfig = await fs.readJson(rootConfigPath);
+    }
+
+    // 3. Define Routing: Root overrides Local
+    const uploadDir = path.resolve(process.cwd(), rootConfig ? rootConfig.pipeline.uploadDir : config.paths.uploadDir);
+    const workingRoot = path.resolve(process.cwd(), rootConfig ? rootConfig.pipeline.workingDir : "../OutputsDuringWorking");
+    const outputRootDir = path.join(workingRoot, "Agent1Crop");
+    const latestOutputDir = path.join(outputRootDir, "latest");
 
     const args = process.argv.slice(2);
     const singleFile = args[0];
@@ -25,19 +39,17 @@ async function start() {
         return;
     }
 
-    // Output Management: Maintain only the latest data
-    const outputRootDir = path.resolve(process.cwd(), config.paths.outputDir);
-    const latestOutputDir = path.join(outputRootDir, "latest");
     await fs.ensureDir(latestOutputDir);
 
     console.log("Starting Agent1Crop (Batch Crop)...");
+    console.log(`Source Directory: ${uploadDir}`);
     console.log(`Output Directory: ${latestOutputDir}`);
 
     const startTime = Date.now();
 
     try {
         await progressLogger.addRunEntry({ action: "start_batch" });
-        await batchCropRecursive(undefined, latestOutputDir, 0, { appName: null, variantName: null }, progressLogger);
+        await batchCropRecursive(uploadDir, latestOutputDir, 0, { appName: null, variantName: null }, progressLogger);
         await progressLogger.addRunEntry({ action: "complete_batch", status: "success" });
     } catch (err) {
         console.error("Batch processing failed:", err.message);

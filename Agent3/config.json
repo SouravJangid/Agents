@@ -1,7 +1,10 @@
 {
     "paths": {
-        "indexFile": "../OutputsDuringWorking/indexing.json",
-        "outputDir": "../outputs"
+        "indexFile": "../OutputsDuringWorking/latest_indexing.json",
+        "sourceDir": "../OutputsDuringWorking/Agent1Crop/latest",
+        "workingDir": "../OutputsDuringWorking/Agent3",
+        "finalOutputDir": "../outputs",
+        "logsDir": "../logs"
     },
     "replacement": {
         "targetWord": "mobbin",

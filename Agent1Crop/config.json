@@ -1,7 +1,8 @@
 {
     "paths": {
         "uploadDir": "/Users/sourav/Desktop/trial/source/apps",
-        "outputDir": "../OutputsDuringWorking/Agent1Crop"
+        "outputDir": "../OutputsDuringWorking/Agent1Crop",
+        "logsDir": "../logs"
     },
     "processing": {
         "validExtensions": [

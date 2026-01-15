@@ -1,20 +1,27 @@
 import fs from 'fs-extra';
 import path from 'path';
 
-const LOGS_DIR = './logs/index';
-const APPS_FILE = path.join(LOGS_DIR, 'apps.json');
-const VARIANTS_FILE = path.join(LOGS_DIR, 'variants.json');
-const RUNS_FILE = path.join(LOGS_DIR, 'runs.json');
-
 async function showStatus() {
-    if (!await fs.pathExists(APPS_FILE)) {
+    const rootConfigPath = path.resolve(process.cwd(), './config.json');
+    if (!await fs.pathExists(rootConfigPath)) {
+        console.error("Root config.json not found!");
+        return;
+    }
+    const rootConfig = await fs.readJson(rootConfigPath);
+
+    const logsDir = path.resolve(process.cwd(), rootConfig.pipeline.logsDir, 'index');
+    const appsFile = path.join(logsDir, 'apps.json');
+    const variantsFile = path.join(logsDir, 'variants.json');
+    const runsFile = path.join(logsDir, 'runs.json');
+
+    if (!await fs.pathExists(appsFile)) {
         console.log("No logs found. Run an agent first.");
         return;
     }
 
-    const apps = await fs.readJson(APPS_FILE);
-    const variants = await fs.readJson(VARIANTS_FILE);
-    const runs = await fs.readJson(RUNS_FILE);
+    const apps = await fs.readJson(appsFile);
+    const variants = await fs.readJson(variantsFile);
+    const runs = await fs.readJson(runsFile);
 
     console.log("\n========================================");
     console.log("       EDUQARD AGENT STATUS REPORT");
@@ -26,7 +33,9 @@ async function showStatus() {
         console.log(`\n🔍 AGENT: ${agent}`);
         console.log("----------------------------------------");
 
-        const agentApps = Object.entries(apps).filter(([key]) => key.startsWith(`${agent}:`));
+        const agentApps = Object.entries(apps)
+            .filter(([key]) => key.startsWith(`${agent}:`))
+            .sort((a, b) => a[0].localeCompare(b[0]));
 
         if (agentApps.length === 0) {
             console.log("  No data recorded.");
@@ -34,14 +43,17 @@ async function showStatus() {
         }
 
         agentApps.forEach(([key, data]) => {
-            const appName = key.split(':')[1];
+            const appName = key.split(':').slice(1).join(':');
             const statusIcon = data.status === 'completed' ? '✅' : data.status === 'running' ? '⏳' : '❌';
             console.log(`  ${statusIcon} App: ${appName.padEnd(30)} | ${data.status.toUpperCase()}`);
 
             // Show variants for this app
-            const agentVariants = Object.entries(variants).filter(([vKey]) => vKey.startsWith(`${agent}:${appName}/`));
+            const agentVariants = Object.entries(variants)
+                .filter(([vKey]) => vKey.startsWith(`${agent}:${appName}/`))
+                .sort((a, b) => a[0].localeCompare(b[0]));
+
             agentVariants.forEach(([vKey, vData]) => {
-                const variantName = vKey.split('/')[1];
+                const variantName = vKey.split('/').slice(1).join('/');
                 const vStatusIcon = vData.status === 'completed' ? '  └─ ✅' : vData.status === 'running' ? '  └─ ⏳' : '  └─ ❌';
                 console.log(`     ${vStatusIcon} Variant: ${variantName.padEnd(24)} | ${vData.status.toUpperCase()}`);
             });

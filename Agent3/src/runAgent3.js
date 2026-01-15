@@ -6,35 +6,62 @@ import { ProgressLogger } from './utils/progressLogger.js';
 const progressLogger = new ProgressLogger('Agent3');
 
 async function main() {
-    const configPath = path.resolve(process.cwd(), 'config.json');
-    if (!(await fs.pathExists(configPath))) {
-        console.error("config.json not found!");
+    // 1. Load Local Config
+    const localConfigPath = path.resolve(process.cwd(), 'config.json');
+    if (!(await fs.pathExists(localConfigPath))) {
+        console.error("Local config.json not found!");
         process.exit(1);
     }
+    const localConfig = await fs.readJson(localConfigPath);
 
-    const config = await fs.readJson(configPath);
+    // 2. Load Root Config (Optional)
+    const rootConfigPath = path.resolve(process.cwd(), '../config.json');
+    let rootConfig = null;
+    if (await fs.pathExists(rootConfigPath)) {
+        rootConfig = await fs.readJson(rootConfigPath);
+    }
+
     await progressLogger.init();
 
-    // Always source from the latest indexing results
-    const indexPath = path.resolve(process.cwd(), '../OutputsDuringWorking/latest_indexing.json');
+    // 3. Define Routing: Root overrides Local
+    const workingRoot = path.resolve(process.cwd(), rootConfig ? rootConfig.pipeline.workingDir : "../OutputsDuringWorking");
 
-    // Always source images from the latest Agent1Crop output
-    const sourceDir = path.resolve(process.cwd(), '../OutputsDuringWorking/Agent1Crop/latest');
+    // Source index from the working directory
+    const indexPath = rootConfig
+        ? path.join(workingRoot, 'latest_indexing.json')
+        : path.resolve(process.cwd(), localConfig.paths.indexFile);
 
-    // Working directory: Maintain only latest data
-    const workingDir = path.resolve(process.cwd(), '../OutputsDuringWorking/Agent3/latest');
+    // Source images from the Agent1 output
+    const sourceDir = rootConfig
+        ? path.join(workingRoot, 'Agent1Crop/latest')
+        : path.resolve(process.cwd(), localConfig.paths.sourceDir);
 
-    // We don't empty directory here if we want to resume
+    // Working directory for Agent3
+    const workingDir = rootConfig
+        ? path.join(workingRoot, 'Agent3/latest')
+        : path.resolve(process.cwd(), localConfig.paths.workingDir, 'latest');
+
     await fs.ensureDir(workingDir);
 
     // Final delivery directory
-    const finalDir = path.resolve(process.cwd(), '../outputs');
+    const finalDir = rootConfig
+        ? path.resolve(process.cwd(), '..', rootConfig.pipeline.finalOutputDir)
+        : path.resolve(process.cwd(), localConfig.paths.finalOutputDir);
+
     await fs.ensureDir(finalDir);
 
+    // Resolve Keywords and Replacement
+    const targetWord = rootConfig?.replacement?.targetWord || localConfig.replacement.targetWord;
+    const newWord = rootConfig?.replacement?.newWord || localConfig.replacement.newWord;
+
     const activeConfig = {
-        ...config,
+        ...localConfig,
+        replacement: {
+            targetWord,
+            newWord
+        },
         paths: {
-            ...config.paths,
+            ...localConfig.paths,
             indexFile: indexPath,
             sourceDir: sourceDir,
             workingDir: workingDir,

@@ -1,36 +1,40 @@
 import fs from 'fs-extra';
 import path from 'path';
 
-const LOGS_DIR = path.resolve(process.cwd(), '../logs/index');
-const APPS_FILE = path.join(LOGS_DIR, 'apps.json');
-const VARIANTS_FILE = path.join(LOGS_DIR, 'variants.json');
-const RUNS_FILE = path.join(LOGS_DIR, 'runs.json');
-
 class ProgressLogger {
     constructor(agentName) {
         this.agentName = agentName;
         this.apps = {};
         this.variants = {};
         this.runs = [];
+
+        // Find root config to resolve logs path
+        const rootConfigPath = path.resolve(process.cwd(), '../config.json');
+        const rootConfig = fs.readJsonSync(rootConfigPath);
+
+        this.logsDir = path.resolve(process.cwd(), '..', rootConfig.pipeline.logsDir, 'index');
+        this.appsFile = path.join(this.logsDir, 'apps.json');
+        this.variantsFile = path.join(this.logsDir, 'variants.json');
+        this.runsFile = path.join(this.logsDir, 'runs.json');
     }
 
     async init() {
-        await fs.ensureDir(LOGS_DIR);
-        if (await fs.pathExists(APPS_FILE)) {
-            this.apps = await fs.readJson(APPS_FILE);
+        await fs.ensureDir(this.logsDir);
+        if (await fs.pathExists(this.appsFile)) {
+            this.apps = await fs.readJson(this.appsFile);
         }
-        if (await fs.pathExists(VARIANTS_FILE)) {
-            this.variants = await fs.readJson(VARIANTS_FILE);
+        if (await fs.pathExists(this.variantsFile)) {
+            this.variants = await fs.readJson(this.variantsFile);
         }
-        if (await fs.pathExists(RUNS_FILE)) {
-            this.runs = await fs.readJson(RUNS_FILE);
+        if (await fs.pathExists(this.runsFile)) {
+            this.runs = await fs.readJson(this.runsFile);
         }
     }
 
     async save() {
-        await fs.outputJson(APPS_FILE, this.apps, { spaces: 2 });
-        await fs.outputJson(VARIANTS_FILE, this.variants, { spaces: 2 });
-        await fs.outputJson(RUNS_FILE, this.runs, { spaces: 2 });
+        await fs.outputJson(this.appsFile, this.apps, { spaces: 2 });
+        await fs.outputJson(this.variantsFile, this.variants, { spaces: 2 });
+        await fs.outputJson(this.runsFile, this.runs, { spaces: 2 });
     }
 
     _getAppKey(appName) {
@@ -121,5 +125,4 @@ class ProgressLogger {
     }
 }
 
-// In each entry point, initialize with new ProgressLogger('agent_name')
 export { ProgressLogger };

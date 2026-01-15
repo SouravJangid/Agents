@@ -1,8 +1,18 @@
 {
-    "paths": {
-        "uploadDir": "/Users/sourav/Desktop/uploads",
-        "agent1Dir": "./Agent1Crop",
-        "agentOcrDir": "./Agent_qard_ocr"
+    "pipeline": {
+        "uploadDir": "/Users/sourav/Desktop/trial/source/apps",
+        "workingDir": "./OutputsDuringWorking",
+        "finalOutputDir": "./outputs",
+        "logsDir": "./logs"
+    },
+    "ocr": {
+        "keywords": [
+            "mobbin"
+        ]
+    },
+    "replacement": {
+        "targetWord": "mobbin",
+        "newWord": "eduqard"
     },
     "settings": {
         "watchDebounceMs": 1000,
