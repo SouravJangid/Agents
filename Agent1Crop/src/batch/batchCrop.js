@@ -117,8 +117,6 @@ export async function batchCropRecursive(
             const ext = path.extname(entry.name).toLowerCase();
             if (!VALID_EXT.includes(ext)) continue;
 
-            if (await fs.pathExists(outputPath)) continue;
-
             await fs.ensureDir(path.dirname(outputPath));
 
             try {

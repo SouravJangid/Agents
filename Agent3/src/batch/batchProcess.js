@@ -46,10 +46,10 @@ export async function runAgent3Batch(config, progressLogger = null) {
                 const variants = appData.outputs ? appData.outputs.variants : appData.variants;
                 for (const variantId in variants) {
                     for (const imgData of variants[variantId]) {
-                        const absPath = imgData["full_path"];
-                        if (!absPath) continue;
-                        if (!detectionsByPath[absPath]) detectionsByPath[absPath] = [];
-                        detectionsByPath[absPath].push(...imgData.detections);
+                        const relPath = imgData["relative_path"];
+                        if (!relPath) continue;
+                        if (!detectionsByPath[relPath]) detectionsByPath[relPath] = [];
+                        detectionsByPath[relPath].push(...imgData.detections);
                     }
                 }
             }
@@ -117,17 +117,11 @@ export async function runAgent3Batch(config, progressLogger = null) {
             if (entry.isFile() && VALID_EXT.includes(path.extname(entry.name).toLowerCase())) {
                 const imgName = entry.name;
                 const relativePath = path.relative(sourceDir, imagePath);
-                const finalPath = path.join(finalDir, imgName);
-
-                if (await fs.pathExists(finalPath)) {
-                    // Skip if file already exists in final output
-                    continue;
-                }
-
+                const finalPath = path.join(finalDir, relativePath);
                 console.log(`Agent3 Processing: ${imgName}`);
 
-                // Lookup by absolute path (matches index)
-                const detections = detectionsByPath[imagePath] || [];
+                // Lookup by relative path (matches index)
+                const detections = detectionsByPath[relativePath] || [];
 
                 try {
                     if (detections.length > 0) {
@@ -138,6 +132,7 @@ export async function runAgent3Batch(config, progressLogger = null) {
 
                             await fs.ensureDir(path.dirname(removedWorkPath));
                             await fs.ensureDir(path.dirname(replacedWorkPath));
+                            await fs.ensureDir(path.dirname(finalPath));
 
                             await fs.writeFile(removedWorkPath, result.inpainted);
                             await fs.writeFile(replacedWorkPath, result.replaced);
@@ -154,6 +149,7 @@ export async function runAgent3Batch(config, progressLogger = null) {
                     }
 
                     // Unchanged image
+                    await fs.ensureDir(path.dirname(finalPath));
                     await fs.copy(imagePath, finalPath);
                     results.processed_files.push({
                         filename: imgName,

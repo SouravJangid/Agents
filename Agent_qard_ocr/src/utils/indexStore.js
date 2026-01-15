@@ -90,7 +90,7 @@ export async function updateKeywordIndex(indexPath, result, keywords, config) {
             index[kw]["total number of matching"] += 1;
             existingEntry = {
                 "images ": result.imagename,
-                "full_path": fullPath,
+                "relative_path": path.relative(sourceDir, fullPath),
                 "highest_confidence": "0.00",
                 "detections": [],
                 "matched_as": ""
