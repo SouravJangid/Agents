@@ -35,6 +35,7 @@ export async function performOCR(imagePath, keywords, languages = 'eng') {
     const matches = [];
     const allWords = words.map(w => w.text);
 
+    /*
     // 1. Line-level matching (High recall for multi-word keywords)
     for (const block of data.blocks) {
         if (!block.paragraphs) continue;
@@ -63,6 +64,7 @@ export async function performOCR(imagePath, keywords, languages = 'eng') {
             }
         }
     }
+    */
 
     // 2. Word-level matching (Precision for specific words)
     for (const word of words) {
