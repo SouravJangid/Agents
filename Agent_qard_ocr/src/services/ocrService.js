@@ -1,110 +1,89 @@
+import path from 'path';
 import { createWorker } from 'tesseract.js';
 import { isMatch } from '../utils/normalizationUtils.js';
-import { detectDesign } from '../utils/designDetector.js';
 
+let sharedWorker = null;
+
+export async function initWorker(languages = 'eng') {
+    if (!sharedWorker) {
+        sharedWorker = await createWorker(languages);
+        console.log(`✅ Tesseract worker initialized.`);
+    }
+    return sharedWorker;
+}
+
+export async function terminateWorker() {
+    if (sharedWorker) {
+        await sharedWorker.terminate();
+        sharedWorker = null;
+    }
+}
+
+/**
+ * Performs OCR and identifies keyword matches.
+ * Uses getFullResult to ensure bboxes and words are populated.
+ */
 export async function performOCR(imagePath, keywords, languages = 'eng') {
-    const worker = await createWorker(languages);
+    const worker = await initWorker(languages);
 
-    // console.log(`Analyzing: ${imagePath}`);
-    // In Tesseract.js v6/v7, words array is not at the top level by default.
-    // We must request blocks and then extract words from the hierarchy.
+    // In Tesseract.js v5+, we request blocks to get the structural data (words, lines, etc.)
     const { data } = await worker.recognize(imagePath, {}, { blocks: true });
 
-    if (!data || !data.blocks) {
-        console.error("OCR returned no data or blocks array is missing.");
-        await worker.terminate();
-        return { matches: [], all_words: [] };
-    }
+    if (!data) return { matches: [], all_words: [] };
 
-    // Flatten words from the blocks -> paragraphs -> lines hierarchy
+    // Tesseract.js structure: data contains blocks, which contain paragraphs, then lines, then words.
+    // We flatten this to get all words with their bboxes.
     const words = [];
-    data.blocks.forEach(block => {
-        if (block.paragraphs) {
+    if (data.blocks) {
+        data.blocks.forEach(block => {
             block.paragraphs.forEach(para => {
-                if (para.lines) {
-                    para.lines.forEach(line => {
-                        if (line.words) {
-                            words.push(...line.words);
-                        }
+                para.lines.forEach(line => {
+                    line.words.forEach(word => {
+                        words.push(word);
                     });
-                }
+                });
             });
-        }
-    });
+        });
+    }
 
     const matches = [];
-    const allWords = words.map(w => w.text);
+    const allWordsText = words.map(w => w.text);
 
-    /*
-    // 1. Line-level matching (High recall for multi-word keywords)
-    for (const block of data.blocks) {
-        if (!block.paragraphs) continue;
-        for (const para of block.paragraphs) {
-            if (!para.lines) continue;
-            for (const line of para.lines) {
-                for (const keyword of keywords) {
-                    const matchInfo = isMatch(line.text, keyword);
-                    if (matchInfo.match) {
-                        const lineConfidence = line.words?.length > 0
-                            ? line.words.reduce((sum, w) => sum + w.confidence, 0) / line.words.length
-                            : 0;
+    console.log(`📸 OCR for ${path.basename(imagePath)}: ${words.length} words found.`);
 
-                        const design = await detectDesign(imagePath, line.bbox);
-
-                        matches.push({
-                            keyword: keyword,
-                            matched_text: line.text,
-                            match_type: matchInfo.type,
-                            confidence: lineConfidence / 100,
-                            bbox: line.bbox,
-                            design: design
-                        });
-                    }
-                }
-            }
-        }
-    }
-    */
-
-    // 2. Word-level matching (Precision for specific words)
+    // --- Search Strategy ---
+    // We check every word to see if it matches or contains our keyword
     for (const word of words) {
         for (const keyword of keywords) {
             const matchInfo = isMatch(word.text, keyword);
-
             if (matchInfo.match) {
-                const design = await detectDesign(imagePath, word.bbox);
                 matches.push({
                     keyword: keyword,
                     matched_text: word.text,
-                    match_type: matchInfo.type,
                     confidence: word.confidence / 100,
-                    bbox: word.bbox,
-                    design: design
+                    bbox: word.bbox
                 });
             }
         }
     }
 
-    await worker.terminate();
-
-    // De-duplicate matches based on keyword and identical bounding box
+    // Deduplication
     const uniqueMatches = [];
     const seen = new Set();
-
     for (const m of matches) {
-        const bboxKey = m.bbox
-            ? `${m.bbox.x0},${m.bbox.y0},${m.bbox.x1},${m.bbox.y1}`
-            : Math.random().toString();
-        const key = `${m.keyword.toLowerCase()}|${bboxKey}`;
-
+        const key = `${m.keyword}|${Math.round(m.bbox.x0)},${Math.round(m.bbox.y0)}`;
         if (!seen.has(key)) {
             seen.add(key);
             uniqueMatches.push(m);
         }
     }
 
+    if (uniqueMatches.length > 0) {
+        console.log(`✅ MATCH: Found "${keywords.join(', ')}" in ${path.basename(imagePath)}`);
+    }
+
     return {
         matches: uniqueMatches,
-        all_words: allWords
+        all_words: allWordsText
     };
 }

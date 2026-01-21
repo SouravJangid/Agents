@@ -8,41 +8,19 @@ import { ProgressLogger } from "./utils/progressLogger.js";
 const progressLogger = new ProgressLogger('Agent1Crop');
 
 async function start() {
-    // 0. Detect Workspace Root
     const cwd = process.cwd();
-    let workspaceRoot = path.resolve(cwd, "..");
-    if (fs.existsSync(path.join(cwd, "config.json")) && !fs.existsSync(path.join(cwd, "src"))) {
-        // If config.json exists here but no 'src', we might be in the root (legacy check)
-        // But usually agents have src. The most reliable check is:
-        if (fs.existsSync(path.join(cwd, "Agent1Crop"))) {
-            workspaceRoot = cwd;
-        }
-    } else if (fs.existsSync(path.join(cwd, "../Agent1Crop"))) {
-        workspaceRoot = path.resolve(cwd, "..");
+
+    // 1. Load Local Config (This agent's own settings)
+    const configPath = path.resolve(cwd, 'config.json');
+    if (!await fs.pathExists(configPath)) {
+        throw new Error(`Config file not found: ${configPath}`);
     }
+    const config = await fs.readJson(configPath);
+    console.log("✅ Using local Agent1Crop configuration.");
 
-    // 1. Load Local Config (Always present)
-    const localConfigPath = path.join(fs.existsSync(path.join(cwd, "config.json")) ? cwd : path.join(cwd, "Agent1Crop"), "config.json");
-    // Actually, we usually run from the agent folder.
-    const config = await fs.readJson(path.resolve(cwd, "config.json"));
-
-    // 2. Load Root Config for Routing (Optional Override)
-    const rootConfigPath = path.join(workspaceRoot, "config.json");
-    let rootConfig = null;
-    if (await fs.pathExists(rootConfigPath)) {
-        rootConfig = await fs.readJson(rootConfigPath);
-    }
-
-    // 3. Define Routing: Root overrides Local
-    const uploadDir = rootConfig
-        ? path.resolve(workspaceRoot, rootConfig.pipeline.uploadDir)
-        : path.resolve(workspaceRoot, config.paths.uploadDir);
-
-    const workingRoot = rootConfig
-        ? path.resolve(workspaceRoot, rootConfig.pipeline.workingDir)
-        : path.resolve(workspaceRoot, config.paths.outputDir, "..");
-
-    const outputRootDir = path.join(workingRoot, "Agent1Crop");
+    // 2. Define Routing based on local config
+    const uploadDir = path.resolve(cwd, config.paths.uploadDir);
+    const outputRootDir = path.resolve(cwd, config.paths.outputDir);
     const latestOutputDir = path.join(outputRootDir, "latest");
 
     const args = process.argv.slice(2);
@@ -50,6 +28,7 @@ async function start() {
 
     // Initialize/Load progress logs
     await progressLogger.init();
+    progressLogger.setupSystemListeners();
 
     if (singleFile) {
         console.log(`Processing single file: ${singleFile}`);
@@ -61,19 +40,20 @@ async function start() {
 
     await fs.ensureDir(latestOutputDir);
 
-    console.log("Starting Agent1Crop (Batch Crop)...");
+    console.log("Starting Agent1Crop (Batch Crop Mode)...");
     console.log(`Source Directory: ${uploadDir}`);
-    console.log(`Working Directory: ${workingRoot}`);
     console.log(`Output Directory: ${latestOutputDir}`);
 
     const startTime = Date.now();
 
     try {
         await progressLogger.addRunEntry({ action: "start_batch" });
-        await batchCropRecursive(uploadDir, latestOutputDir, 0, { appName: null, variantName: null }, progressLogger);
+        // Pass the local config for processing settings (crop profiles)
+        await batchCropRecursive(uploadDir, latestOutputDir, 0, { appName: null, variantName: null }, progressLogger, config);
         await progressLogger.addRunEntry({ action: "complete_batch", status: "success" });
     } catch (err) {
         console.error("Batch processing failed:", err.message);
+        await progressLogger.logError(err, { action: "complete_batch" });
         await progressLogger.addRunEntry({ action: "complete_batch", status: "failed", error: err.message });
     }
 
@@ -82,4 +62,7 @@ async function start() {
     console.log(`Batch Crop complete in ${duration} seconds.`);
 }
 
-start().catch(err => console.error("Agent1Crop Error:", err));
+start().catch(async err => {
+    console.error("Agent1Crop Fatal Error:", err);
+    await progressLogger.logError(err, { action: "fatal_initialization" });
+});

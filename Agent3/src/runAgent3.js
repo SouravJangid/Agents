@@ -3,60 +3,39 @@ import path from 'path';
 import { runAgent3Batch } from './batch/batchProcess.js';
 import { ProgressLogger } from './utils/progressLogger.js';
 
+/**
+ * Agent 3: Redaction/Blur Engine
+ * Role: Reads detection metadata and applies blur effects.
+ */
 const progressLogger = new ProgressLogger('Agent3');
 
 async function main() {
-    // 0. Workspace Root Detection
     const cwd = process.cwd();
-    let workspaceRoot = path.resolve(cwd, '..');
-    if (fs.existsSync(path.join(cwd, 'Agent1Crop')) && fs.existsSync(path.join(cwd, 'config.json'))) {
-        workspaceRoot = cwd;
-    }
 
     // 1. Load Local Config
-    const config = await fs.readJson(path.resolve(cwd, 'config.json'));
-
-    // 2. Load Root Config (Optional)
-    const rootConfigPath = path.join(workspaceRoot, 'config.json');
-    let rootConfig = null;
-    if (workspaceRoot !== cwd && fs.existsSync(rootConfigPath)) {
-        rootConfig = await fs.readJson(rootConfigPath);
+    const configPath = path.resolve(cwd, 'config.json');
+    if (!await fs.pathExists(configPath)) {
+        throw new Error(`Config file not found: ${configPath}`);
     }
+    const config = await fs.readJson(configPath);
+    console.log("✅ Using local Agent3 configuration.");
 
     await progressLogger.init();
+    progressLogger.setupSystemListeners();
 
-    // 3. Define Routing: Root overrides Local
-    const workingRoot = rootConfig
-        ? path.resolve(workspaceRoot, rootConfig.pipeline.workingDir)
-        : path.resolve(workspaceRoot, 'OutputsDuringWorking');
+    // 2. Define Routing based on local config
+    const indexPath = path.resolve(cwd, config.paths.indexFile);
+    const sourceDir = path.resolve(cwd, config.paths.sourceDir);
+    const workingDir = path.resolve(cwd, config.paths.workingDir);
+    const finalDir = path.resolve(cwd, config.paths.finalOutputDir);
 
-    // Source index from the working directory
-    const indexPath = path.join(workingRoot, 'latest_indexing.json');
-
-    // Source images from the Agent1 output
-    const sourceDir = path.join(workingRoot, 'Agent1Crop/latest');
-
-    // Working directory for Agent3
-    const workingDir = path.join(workingRoot, 'Agent3/latest');
     await fs.ensureDir(workingDir);
-
-    // Final delivery directory
-    const finalDir = rootConfig
-        ? path.resolve(workspaceRoot, rootConfig.pipeline.finalOutputDir)
-        : path.resolve(workspaceRoot, 'outputs');
-
     await fs.ensureDir(finalDir);
 
-    // Resolve Keywords and Replacement
-    const targetWord = rootConfig?.replacement?.targetWord || config.replacement.targetWord;
-    const newWord = rootConfig?.replacement?.newWord || config.replacement.newWord;
-
+    // 3. Prepare Config for Batch
+    // We ensure all paths are absolute before passing to the processor
     const activeConfig = {
         ...config,
-        replacement: {
-            targetWord,
-            newWord
-        },
         paths: {
             ...config.paths,
             indexFile: indexPath,
@@ -66,21 +45,28 @@ async function main() {
         }
     };
 
-    console.log("Starting Agent3...");
-    console.log(`Source Dir: ${sourceDir}`);
-    console.log(`Working Directory: ${workingRoot}`);
-    console.log(`Final Dir: ${finalDir}`);
-    console.log(`Index File: ${indexPath}`);
+    console.log("------------------------------------------");
+    console.log("🚀 Starting Agent3: Blurring Engine");
+    console.log(`📍 Source: ${sourceDir}`);
+    console.log(`📍 Index:  ${indexPath}`);
+    console.log(`📍 Final:  ${finalDir}`);
+    console.log("------------------------------------------");
 
     try {
         await progressLogger.addRunEntry({ action: "start_batch" });
         await runAgent3Batch(activeConfig, progressLogger);
         await progressLogger.addRunEntry({ action: "complete_batch", status: "success" });
+        console.log("\n✅ Agent3 processing completed successfully.");
     } catch (err) {
-        console.error("Fatal error in Agent3:", err);
+        console.error("\n❌ Fatal error in Agent3:", err.message);
+        await progressLogger.logError(err, { action: "complete_batch" });
         await progressLogger.addRunEntry({ action: "complete_batch", status: "failed", error: err.message });
         process.exit(1);
     }
 }
 
-main();
+main().catch(async err => {
+    console.error("Agent3 Fatal Error:", err);
+    await progressLogger.logError(err, { action: "fatal_initialization" });
+    process.exit(1);
+});

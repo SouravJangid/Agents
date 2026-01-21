@@ -2,9 +2,9 @@ import fs from 'fs-extra';
 import path from 'path';
 
 /**
- * Manages the App-Level Keyword Index with Platform/AppId/VariantId nesting.
+ * Parses folder names into App ID and Variant ID.
+ * Example: "Airbnb ios Jun 2023" -> { appId: "Airbnb", variantId: "ios Jun 2023" }
  */
-
 function parseFolderName(folderName) {
     const platformMatch = folderName.match(/^(.+?)\s+(ios|android|web|desktop)\s+(.+)$/i);
     if (platformMatch) {
@@ -28,6 +28,9 @@ function parseFolderName(folderName) {
     };
 }
 
+/**
+ * Determines the platform (mobile/web/desktop) based on the directory structure.
+ */
 function getPlatformFromPath(filedir, sourceDir) {
     const relative = path.relative(sourceDir, filedir);
     if (!relative || relative === '.') return "other";
@@ -42,9 +45,14 @@ function getPlatformFromPath(filedir, sourceDir) {
     return "other";
 }
 
+/**
+ * Core function to update the indexing.json file with new OCR results.
+ * Organizes data as: Keyword -> Platform -> App -> Variant -> Images.
+ */
 export async function updateKeywordIndex(indexPath, result, keywords, config) {
     let index = {};
 
+    // 1. Load existing index if it exists
     if (await fs.pathExists(indexPath)) {
         index = await fs.readJson(indexPath);
     }
@@ -53,15 +61,16 @@ export async function updateKeywordIndex(indexPath, result, keywords, config) {
     const platform = getPlatformFromPath(result.filedir, sourceDir);
     const folderName = path.basename(result.filedir);
 
-    // If the folder is the sourceDir itself, use a generic name or from relative path
+    // 2. Identify App and Variant context
     const effectiveFolderName = (result.filedir === sourceDir) ? "outputs" : folderName;
     const { appId, variantId } = parseFolderName(effectiveFolderName);
     const fullPath = path.resolve(result.filedir, result.imagename);
 
-    // Process each keyword match found in the image
+    // 3. Process each keyword match found in the current image
     result.keywordMatches.forEach(match => {
         const kw = match.keyword.toLowerCase();
 
+        // Initialize structure if missing
         if (!index[kw]) {
             index[kw] = {
                 "keyword": match.keyword,
@@ -74,7 +83,6 @@ export async function updateKeywordIndex(indexPath, result, keywords, config) {
             index[kw].platforms[platform] = { "apps": {} };
         }
 
-        // Structure: platforms -> platform -> apps -> appId -> variants -> variantId -> [images]
         if (!index[kw].platforms[platform].apps[appId]) {
             index[kw].platforms[platform].apps[appId] = { "variants": {} };
         }
@@ -86,6 +94,7 @@ export async function updateKeywordIndex(indexPath, result, keywords, config) {
         const variantList = index[kw].platforms[platform].apps[appId].variants[variantId];
         let existingEntry = variantList.find(img => img["images "] === result.imagename);
 
+        // 4. Create new image entry if it doesn't exist for this keyword
         if (!existingEntry) {
             index[kw]["total number of matching"] += 1;
             existingEntry = {
@@ -98,14 +107,15 @@ export async function updateKeywordIndex(indexPath, result, keywords, config) {
             variantList.push(existingEntry);
         }
 
-        // Update highest confidence and matched_as if this match is stronger
+        // 5. Update global image stats (highest confidence match)
         const currentConf = parseFloat(match.confidence.toFixed(2));
         if (currentConf > parseFloat(existingEntry.highest_confidence)) {
             existingEntry.highest_confidence = match.confidence.toFixed(2);
             existingEntry.matched_as = match.matched_text.trim();
         }
 
-        // Add this detection to the list
+        // 6. Record the specific detection coordinates
+        // We only save the text and the Refined Bounding Box (bbox_refined)
         existingEntry.detections.push({
             "text": match.matched_text.trim(),
             "confidence": match.confidence.toFixed(2),
@@ -118,14 +128,17 @@ export async function updateKeywordIndex(indexPath, result, keywords, config) {
                 "y0": Math.round(match.bbox.y0),
                 "x1": Math.round(match.bbox.x1),
                 "y1": Math.round(match.bbox.y1)
-            } : null,
-            "design": match.design
+            } : null
         });
     });
 
+    // 7. Write updated index back to disk
     await fs.outputJson(indexPath, index, { spaces: 2 });
 }
 
+/**
+ * Ensures the index file exists before starting the batch.
+ */
 export async function initializeIndex(indexPath) {
     if (!(await fs.pathExists(indexPath))) {
         await fs.outputJson(indexPath, {}, { spaces: 2 });

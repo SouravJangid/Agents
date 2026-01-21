@@ -3,13 +3,13 @@ import path from 'path';
 import { runOcrAgent } from '../agent/ocrAgent.js';
 import { updateKeywordIndex } from '../utils/indexStore.js';
 import { unzip } from '../utils/zipUtils.js';
+import { initWorker, terminateWorker } from '../services/ocrService.js';
 
 const VALID_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp'];
 const ZIP_EXT = '.zip';
 
 /**
  * Recursively runs OCR on images in the directory.
- * Tracks depth to log App and Variant progress.
  */
 export async function processDirectoryRecursive(
     dir,
@@ -19,121 +19,77 @@ export async function processDirectoryRecursive(
     context = { appName: null, variantName: null },
     progressLogger = null
 ) {
-    let entries = await fs.readdir(dir, { withFileTypes: true });
-
-    // Sort entries to process folders and files in a predictable order
-    entries.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
-
-    const hasImages = entries.some(e => e.isFile() && VALID_EXTENSIONS.includes(path.extname(e.name).toLowerCase()));
-
-    // Fallback for flat structures
-    if (depth === 2 && hasImages && !context.variantName && progressLogger) {
-        context.variantName = "default";
-        if (progressLogger.isVariantCompleted(context.appName, context.variantName)) {
-            console.log(`Skipping completed OCR Variant: ${context.appName}/${context.variantName}`);
-            return;
-        }
-        progressLogger.markVariantStarted(context.appName, context.variantName);
-        await progressLogger.save();
+    // 0. Initialize worker at the very beginning of the batch (root call)
+    if (depth === 0) {
+        await initWorker(config.ocr.languages || 'eng');
     }
+
+    let entries = await fs.readdir(dir, { withFileTypes: true });
+    entries.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
 
     for (const entry of entries) {
         const fullPath = path.join(dir, entry.name);
         let newContext = { ...context };
 
-        // 1. Directory
+        // 1. Directory Traversal
         if (entry.isDirectory()) {
-            if (depth === 1) {
-                newContext.appName = entry.name;
-                if (progressLogger && progressLogger.isAppCompleted(newContext.appName)) {
-                    console.log(`Skipping completed OCR App: ${newContext.appName}`);
-                    continue;
-                }
-                if (progressLogger) {
-                    progressLogger.markAppStarted(newContext.appName);
-                    await progressLogger.save();
-                }
-            } else if (depth === 2) {
-                newContext.variantName = entry.name;
-                if (progressLogger && progressLogger.isVariantCompleted(newContext.appName, newContext.variantName)) {
-                    console.log(`Skipping completed OCR Variant: ${newContext.appName}/${newContext.variantName}`);
-                    continue;
-                }
-                if (progressLogger) {
-                    progressLogger.markVariantStarted(newContext.appName, newContext.variantName);
-                    await progressLogger.save();
-                }
-            }
+            if (depth === 1) newContext.appName = entry.name;
+            if (depth === 2) newContext.variantName = entry.name;
 
             await processDirectoryRecursive(fullPath, config, processedFiles, depth + 1, newContext, progressLogger);
-
-            // Completion marking
-            if (depth === 1 && newContext.appName && progressLogger) {
-                progressLogger.markAppCompleted(newContext.appName);
-                await progressLogger.save();
-            } else if (depth === 2 && newContext.appName && newContext.variantName && progressLogger) {
-                progressLogger.markVariantCompleted(newContext.appName, newContext.variantName);
-                await progressLogger.save();
-            }
-
             continue;
         }
 
-        // 2. ZIP file
+        // 2. ZIP extraction (if needed)
         if (entry.isFile() && path.extname(entry.name).toLowerCase() === ZIP_EXT) {
             const folderName = entry.name.slice(0, -ZIP_EXT.length);
             const tempUnzipDir = path.join(dir, folderName);
-
-            const folderExists = entries.some(e => e.isDirectory() && e.name === folderName);
-            if (folderExists) {
-                console.log(`Skipping ZIP file because folder already exists: ${entry.name}`);
-                continue;
-            }
-
-            console.log(`Unzipping for OCR: ${entry.name}`);
-            try {
-                unzip(fullPath, tempUnzipDir);
-                await processDirectoryRecursive(tempUnzipDir, config, processedFiles, depth, context, progressLogger);
-                await fs.remove(tempUnzipDir);
-            } catch (err) {
-                console.error(`Error processing ZIP ${entry.name}:`, err.message);
+            if (!await fs.pathExists(tempUnzipDir)) {
+                try {
+                    unzip(fullPath, tempUnzipDir);
+                    await processDirectoryRecursive(tempUnzipDir, config, processedFiles, depth, context, progressLogger);
+                    await fs.remove(tempUnzipDir);
+                } catch (err) {
+                    console.error(`Failed ZIP: ${entry.name}`, err.message);
+                    if (progressLogger) await progressLogger.logError(err, { ...context, action: 'unzip', zipPath: fullPath });
+                }
             }
             continue;
         }
 
-        // 3. Image file
-        if (entry.isFile()) {
-            const ext = path.extname(entry.name).toLowerCase();
-            if (VALID_EXTENSIONS.includes(ext)) {
-                // If the app/variant is already marked as completed, we might still reach here 
-                // but the directory jump above handles it most cases.
+        // 3. Image Processing
+        if (entry.isFile() && VALID_EXTENSIONS.includes(path.extname(entry.name).toLowerCase())) {
 
-                // Track already processed individual images if needed (less granular than variant)
-                if (processedFiles && processedFiles.has(fullPath)) continue;
+            // Resume Check
+            if (progressLogger && progressLogger.isImageProcessed(fullPath)) continue;
 
-                console.log(`OCR Processing: ${entry.name}`);
-                try {
-                    const result = await runOcrAgent(fullPath, config);
-                    const indexFile = path.resolve(process.cwd(), config.paths.indexFile);
+            console.log(`🔍 Processing: ${entry.name}`);
+            try {
+                // Perform OCR
+                const result = await runOcrAgent(fullPath, config);
 
-                    await updateKeywordIndex(indexFile, result, config.ocr.keywords, config);
+                // Use the indexing path from config (Passed down from runOcr.js)
+                const indexPath = config.paths.indexFile;
+                if (!indexPath) throw new Error("config.paths.indexFile is missing in batch!");
 
-                    const uniqueKeywords = [...new Set(result.keywordMatches.map(m => m.keyword))];
-                    console.log(`Matched keywords: ${uniqueKeywords.join(', ') || 'none'}`);
-                } catch (err) {
-                    console.error(`Error processing ${fullPath}:`, err.message);
-                    if (progressLogger && context.appName && context.variantName) {
-                        progressLogger.markVariantFailed(context.appName, context.variantName, err.message);
-                        await progressLogger.save();
-                    }
+                await updateKeywordIndex(indexPath, result, config.ocr.keywords, config);
+
+                if (progressLogger) {
+                    progressLogger.markImageProcessed(fullPath);
+                    await progressLogger.save();
+                }
+            } catch (err) {
+                console.error(`❌ OCR Failed [${entry.name}]:`, err.message);
+                if (progressLogger) {
+                    progressLogger.markImageFailed(fullPath, err.message);
+                    await progressLogger.logError(err, { ...context, action: 'ocr', imagePath: fullPath });
                 }
             }
         }
     }
 
-    // Flat structure completion
-    if (depth === 2 && context.appName && context.variantName === "default" && hasImages && progressLogger) {
-        progressLogger.markVariantCompleted(context.appName, context.variantName);
-        await progressLogger.save();
+    // 4. Cleanup worker at the end of the root call
+    if (depth === 0) {
+        await terminateWorker();
     }
 }

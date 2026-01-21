@@ -3,37 +3,34 @@ import path from "path";
 import { runCropAgent } from "../agent/cropAgent.js";
 import { unzip } from "../utils/zipUtils.js";
 
-const config = fs.readJsonSync(path.resolve(process.cwd(), "config.json"));
-
-const UPLOAD_ROOT = path.resolve(process.cwd(), config.paths.uploadDir);
-const VALID_EXT = config.processing.validExtensions;
-const ZIP_EXT = ".zip";
 
 /**
- * Recursively crops images in the upload directory.
- * Tracks depth to log App and Variant progress.
- * 
- * Target structure:
- * Level 1 (uploads/platform): Entry = AppName
- * Level 2 (uploads/platform/app): Entry = VariantName
+ * Recursively traverses the upload directory to find and process images.
+ * It identifies the hierarchy as: Platform -> App (Depth 1) -> Variant (Depth 2) -> Images.
  */
 export async function batchCropRecursive(
-    currentUploadDir = UPLOAD_ROOT,
+    currentUploadDir,
     outputRootOverride = null,
     depth = 0,
     context = { appName: null, variantName: null },
-    progressLogger = null
+    progressLogger = null,
+    activeConfig = null
 ) {
-    const outputRoot = outputRootOverride || path.resolve(process.cwd(), config.paths.outputDir);
+    const configToUse = activeConfig || fs.readJsonSync(path.resolve(process.cwd(), "config.json"));
+    const uploadRoot = activeConfig ? activeConfig.paths.uploadDir : path.resolve(process.cwd(), configToUse.paths.uploadDir);
+    const outputRoot = outputRootOverride || path.resolve(process.cwd(), configToUse.paths.outputDir);
+    const validExt = configToUse.processing.validExtensions;
+    const zipExt = ".zip";
 
+    // Read all files and folders in the current directory
     const entries = await fs.readdir(currentUploadDir, {
         withFileTypes: true
     });
 
-    // Check if this directory directly contains images (Variant identification)
-    const folderContainsImages = entries.some(e => e.isFile() && VALID_EXT.includes(path.extname(e.name).toLowerCase()));
+    // Determine if this directory directly contains images (indicates a Variant folder)
+    const folderContainsImages = entries.some(e => e.isFile() && validExt.includes(path.extname(e.name).toLowerCase()));
 
-    // Fallback for flat structures (App/Images instead of App/Variant/Images)
+    // Fallback: If images are found directly in an App folder, treat it as a "default" variant
     if (depth === 2 && folderContainsImages && !context.variantName && progressLogger) {
         context.variantName = "default";
         if (progressLogger.isVariantCompleted(context.appName, context.variantName)) {
@@ -46,14 +43,15 @@ export async function batchCropRecursive(
 
     for (const entry of entries) {
         const uploadPath = path.join(currentUploadDir, entry.name);
-        const relativePath = path.relative(UPLOAD_ROOT, uploadPath);
+        const relativePath = path.relative(uploadRoot, uploadPath);
         const outputPath = path.join(outputRoot, relativePath);
 
         let newContext = { ...context };
 
-        // 1. Directory
+        // --- 1. Handle Subdirectories ---
         if (entry.isDirectory()) {
             if (depth === 1) {
+                // We've found an App folder (e.g. "Airbnb")
                 newContext.appName = entry.name;
                 if (progressLogger && progressLogger.isAppCompleted(newContext.appName)) {
                     console.log(`Skipping completed App: ${newContext.appName}`);
@@ -64,6 +62,7 @@ export async function batchCropRecursive(
                     await progressLogger.save();
                 }
             } else if (depth === 2) {
+                // We've found a Variant folder (e.g. "ios Jun 2023")
                 newContext.variantName = entry.name;
                 if (progressLogger && progressLogger.isVariantCompleted(newContext.appName, newContext.variantName)) {
                     console.log(`Skipping completed Variant: ${newContext.appName}/${newContext.variantName}`);
@@ -75,10 +74,12 @@ export async function batchCropRecursive(
                 }
             }
 
+            // Ensure output directory mirrors the source structure
             await fs.ensureDir(outputPath);
-            await batchCropRecursive(uploadPath, outputRoot, depth + 1, newContext, progressLogger);
+            // Recurse deeper into the directory tree
+            await batchCropRecursive(uploadPath, outputRoot, depth + 1, newContext, progressLogger, activeConfig);
 
-            // Completion marking for variants with subdirectories
+            // Mark completion in logs after recursion finishes
             if (depth === 2 && newContext.appName && newContext.variantName && progressLogger) {
                 progressLogger.markVariantCompleted(newContext.appName, newContext.variantName);
                 await progressLogger.save();
@@ -90,49 +91,65 @@ export async function batchCropRecursive(
             continue;
         }
 
-        // 2. ZIP file
-        if (entry.isFile() && path.extname(entry.name).toLowerCase() === ZIP_EXT) {
-            const unzipDirName = entry.name.replace(new RegExp(ZIP_EXT + '$', 'i'), "");
+        // --- 2. Handle ZIP Archives ---
+        if (entry.isFile() && path.extname(entry.name).toLowerCase() === zipExt) {
+            const unzipDirName = entry.name.replace(new RegExp(zipExt + '$', 'i'), "");
             const unzipDirPath = path.join(currentUploadDir, unzipDirName);
 
+            // Avoid unzipping if the target folder already exists (prevents infinite loops/redundancy)
             const folderExists = entries.some(e => e.isDirectory() && e.name === unzipDirName);
             if (folderExists) {
                 console.log(`Skipping ZIP file because folder already exists: ${entry.name}`);
                 continue;
             }
 
-            console.log(`Unzipping: ${entry.name}`);
+            console.log(`Unzipping archive: ${entry.name}`);
             try {
                 await unzip(uploadPath, unzipDirPath);
-                await batchCropRecursive(unzipDirPath, outputRoot, depth, context, progressLogger);
-                await fs.remove(unzipDirPath);
+                await batchCropRecursive(unzipDirPath, outputRoot, depth, context, progressLogger, activeConfig);
+                await fs.remove(unzipDirPath); // Clean up unzip folder after processing
             } catch (err) {
                 console.error(`Error processing zip ${entry.name}:`, err.message);
+                if (progressLogger) {
+                    await progressLogger.logError(err, { ...context, action: 'unzip', zipPath: uploadPath });
+                }
             }
             continue;
         }
 
-        // 3. Image
+        // --- 3. Handle Single Images ---
         if (entry.isFile()) {
             const ext = path.extname(entry.name).toLowerCase();
-            if (!VALID_EXT.includes(ext)) continue;
+            if (!validExt.includes(ext)) continue; // Skip non-image files
+
+            // Resume check: Skip if already processed by this agent
+            if (progressLogger && progressLogger.isImageProcessed(uploadPath)) {
+                continue;
+            }
 
             await fs.ensureDir(path.dirname(outputPath));
 
             try {
+                // Call the Crop Agent to process the individual image
                 await runCropAgent(uploadPath, { outputOverride: outputPath });
-                console.log(`Cropped: ${relativePath}`);
-            } catch (err) {
-                console.error(`Failed: ${relativePath}`, err.message);
-                if (progressLogger && context.appName && context.variantName) {
-                    progressLogger.markVariantFailed(context.appName, context.variantName, err.message);
+                console.log(`Successfully Cropped: ${relativePath}`);
+
+                // Success log for resumption
+                if (progressLogger) {
+                    progressLogger.markImageProcessed(uploadPath);
                     await progressLogger.save();
+                }
+            } catch (err) {
+                console.error(`Crop Failed: ${relativePath}`, err.message);
+                if (progressLogger) {
+                    progressLogger.markImageFailed(uploadPath, err.message);
+                    await progressLogger.logError(err, { ...context, action: 'crop', imagePath: uploadPath });
                 }
             }
         }
     }
 
-    // If we are at the end of a variant directory (flat structure case)
+    // Completion check for flat structure (no Variant folder, just App/Images)
     if (depth === 2 && context.appName && context.variantName === "default" && folderContainsImages && progressLogger) {
         progressLogger.markVariantCompleted(context.appName, context.variantName);
         await progressLogger.save();

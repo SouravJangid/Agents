@@ -3,98 +3,76 @@ import fs from 'fs-extra';
 import path from 'path';
 
 /**
- * Replaces text in an image based on detection data and design style.
- * Returns both the inpainted (removed) and final (replaced) buffers.
+ * Agent 3: Image Blurring Service.
+ * This service takes detection coordinates from Agent 2 and applies a blur effect 
+ * to those specific regions to hide the targeted keywords.
  */
-export async function processImageReplacement(imagePath, detections, config) {
-    const { targetWord, newWord } = config.replacement;
-    let currentImage = sharp(imagePath);
-    const metadata = await currentImage.metadata();
+export async function processImageBlur(imagePath, detections, config) {
+    // 1. Get the target keyword from the configuration
+    // This allows us to only blur the specific words the user wants to hide
+    const { targetWord } = config.replacement;
 
-    const inpaintLayers = [];
-    const textLayers = [];
+    // 2. Wrap the source image in a Sharp instance
+    // Sharp is used for all high-performance image manipulation tasks
+    let img = sharp(imagePath);
 
-    // Expansion padding (requested 5px width and height)
-    const paddingX = 2.5;
-    const paddingY = 2.5;
+    // 3. Retrieve image metadata (width/height)
+    // We need these dimensions to ensure our blur regions don't go outside the image borders
+    const metadata = await img.metadata();
 
+    // 4. Initialize an array to store all blurring (composite) operations
+    // We will apply all blurs in a single batch at the end for efficiency
+    const compositeOperations = [];
+
+    // 5. Loop through every word detection provided by Agent 2
     for (const detection of detections) {
+        // Skip this detection if it doesn't contain our target keyword (case-insensitive)
         if (!detection.text.toLowerCase().includes(targetWord.toLowerCase())) continue;
 
-        const { bbox_refined, design } = detection;
-        if (!bbox_refined || !design) continue;
+        // Extract the refined bounding box (the exact coordinates of the word)
+        const { bbox_refined } = detection;
+        if (!bbox_refined) continue;
 
         const { x, y, w, h } = bbox_refined;
-        const { textColor, bgColor, fontSize, weight, isGradient, bgTop, bgBottom } = design;
 
-        // Expanded coordinates to ensure no text artifacts are left behind
-        const ex = x - paddingX;
-        const ey = y - paddingY;
-        const ew = w + (paddingX * 2);
-        const eh = h + (paddingY * 2);
+        // 6. Calculate the blur region with a small amount of padding (2px)
+        // Padding ensures we fully cover the visual footprint of the characters
+        // We use Math.round to ensure pixel-perfect coordinates
+        const bx = Math.max(0, Math.round(x - 2));
+        const by = Math.max(0, Math.round(y - 2));
+        const bw = Math.min(metadata.width - bx, Math.round(w + 4));
+        const bh = Math.min(metadata.height - by, Math.round(h + 4));
 
-        // 1. Inpaint Layer (Rectangle)
-        if (isGradient) {
-            const id = `grad_${x}_${y}`;
-            inpaintLayers.push(`
-                <defs>
-                    <linearGradient id="${id}" x1="0%" y1="0%" x2="0%" y2="100%">
-                        <stop offset="0%" style="stop-color:${bgTop};stop-opacity:1" />
-                        <stop offset="100%" style="stop-color:${bgBottom};stop-opacity:1" />
-                    </linearGradient>
-                </defs>
-                <rect x="${ex}" y="${ey}" width="${ew}" height="${eh}" fill="url(#${id})" />
-            `);
-        } else {
-            inpaintLayers.push(`<rect x="${ex}" y="${ey}" width="${ew}" height="${eh}" fill="${bgColor}" />`);
-        }
+        // 7. Create a blurred "patch" of the image
+        // We extract the small rectangle, apply a Gaussian blur, and convert it to a buffer
+        const blurredPatch = await sharp(imagePath)
+            .extract({ left: bx, top: by, width: bw, height: bh })
+            .blur(15) // Apply a strong blur (intensity = 15)
+            .toBuffer();
 
-        // 2. Text Layer
-        const replacedText = detection.text.replace(new RegExp(targetWord, 'gi'), newWord);
-        textLayers.push(`
-            <text 
-                x="${x + w / 2}" 
-                y="${y + h / 2}" 
-                font-family="Arial, Helvetica, sans-serif" 
-                font-size="${fontSize}" 
-                font-weight="${weight || 'normal'}" 
-                fill="${textColor}" 
-                text-anchor="middle" 
-                dominant-baseline="central"
-            >${escapeHtml(replacedText)}</text>
-        `);
+        // 8. Add this blurred patch to our list of overlays
+        // We'll place this patch exactly back where we took it from
+        compositeOperations.push({
+            input: blurredPatch,
+            left: bx,
+            top: by
+        });
     }
 
-    if (inpaintLayers.length === 0) return null;
+    // 9. If no matching keywords were found, return null
+    if (compositeOperations.length === 0) return null;
 
-    // Create Inpainted Buffer
-    const svgInpaint = `<svg width="${metadata.width}" height="${metadata.height}" xmlns="http://www.w3.org/2000/svg">${inpaintLayers.join('\n')}</svg>`;
-    const inpaintedBuffer = await sharp(imagePath)
-        .composite([{ input: Buffer.from(svgInpaint), top: 0, left: 0 }])
-        .png({ compressionLevel: 0, effort: 1, palette: false })
+    // 10. Perform the final composite operation
+    // This pastes all blurred patches back onto the original image in one go
+    const blurredBuffer = await img
+        .composite(compositeOperations)
+        .png()
         .toBuffer();
 
-    // Create Final Replaced Buffer
-    const svgFinal = `<svg width="${metadata.width}" height="${metadata.height}" xmlns="http://www.w3.org/2000/svg">
-        ${inpaintLayers.join('\n')}
-        ${textLayers.join('\n')}
-    </svg>`;
-    const replacedBuffer = await sharp(imagePath)
-        .composite([{ input: Buffer.from(svgFinal), top: 0, left: 0 }])
-        .png({ compressionLevel: 0, effort: 1, palette: false })
-        .toBuffer();
-
+    // 11. Return the result object
+    // 'replaced' is used by the batch processor to save the final redacted image
     return {
-        inpainted: inpaintedBuffer,
-        replaced: replacedBuffer
+        replaced: blurredBuffer,
+        inpainted: blurredBuffer // For consistency with existing pipeline structure
     };
-}
-
-function escapeHtml(text) {
-    return text
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
 }
