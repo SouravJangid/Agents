@@ -15,23 +15,20 @@ class ProgressLogger {
         this.runs = [];
         this.errors = [];
 
-        // Determine logs directory relative to where the agent is running
         const cwd = process.cwd();
-        let logsDir = path.resolve(cwd, '../logs/index');
+        const configPath = path.resolve(cwd, 'config.json');
 
-        try {
-            const configPath = path.resolve(cwd, 'config.json');
-            if (fs.existsSync(configPath)) {
-                const config = fs.readJsonSync(configPath);
-                if (config.paths && config.paths.logsDir) {
-                    logsDir = path.resolve(cwd, config.paths.logsDir, 'index');
-                }
-            }
-        } catch (err) {
-            // Fallback to relative path if config is missing
+        if (!fs.existsSync(configPath)) {
+            throw new Error(`[ProgressLogger] Critical: config.json not found in ${cwd}`);
         }
 
-        this.logsDir = logsDir;
+        const config = fs.readJsonSync(configPath);
+        if (!config.paths || !config.paths.logsDir) {
+            throw new Error(`[ProgressLogger] Critical: 'paths.logsDir' is not defined in config.json`);
+        }
+
+        const baseLogsDir = path.resolve(cwd, config.paths.logsDir);
+        this.logsDir = path.join(baseLogsDir, 'index');
         this.appsFile = path.join(this.logsDir, 'apps.json');
         this.variantsFile = path.join(this.logsDir, 'variants.json');
         this.imagesFile = path.join(this.logsDir, 'images.json');
