@@ -27,19 +27,8 @@ export async function batchCropRecursive(
         withFileTypes: true
     });
 
-    // Determine if this directory directly contains images (indicates a Variant folder)
+    // Determine if this directory directly contains images
     const folderContainsImages = entries.some(e => e.isFile() && validExt.includes(path.extname(e.name).toLowerCase()));
-
-    // Fallback: If images are found directly in an App folder, treat it as a "default" variant
-    if (depth === 2 && folderContainsImages && !context.variantName && progressLogger) {
-        context.variantName = "default";
-        if (progressLogger.isVariantCompleted(context.appName, context.variantName)) {
-            console.log(`Skipping completed Variant: ${context.appName}/${context.variantName}`);
-            return;
-        }
-        progressLogger.markVariantStarted(context.appName, context.variantName);
-        await progressLogger.save();
-    }
 
     for (const entry of entries) {
         const uploadPath = path.join(currentUploadDir, entry.name);
@@ -61,17 +50,6 @@ export async function batchCropRecursive(
                     progressLogger.markAppStarted(newContext.appName);
                     await progressLogger.save();
                 }
-            } else if (depth === 2) {
-                // We've found a Variant folder (e.g. "ios Jun 2023")
-                newContext.variantName = entry.name;
-                if (progressLogger && progressLogger.isVariantCompleted(newContext.appName, newContext.variantName)) {
-                    console.log(`Skipping completed Variant: ${newContext.appName}/${newContext.variantName}`);
-                    continue;
-                }
-                if (progressLogger) {
-                    progressLogger.markVariantStarted(newContext.appName, newContext.variantName);
-                    await progressLogger.save();
-                }
             }
 
             // Ensure output directory mirrors the source structure
@@ -80,10 +58,7 @@ export async function batchCropRecursive(
             await batchCropRecursive(uploadPath, outputRoot, depth + 1, newContext, progressLogger, activeConfig);
 
             // Mark completion in logs after recursion finishes
-            if (depth === 2 && newContext.appName && newContext.variantName && progressLogger) {
-                progressLogger.markVariantCompleted(newContext.appName, newContext.variantName);
-                await progressLogger.save();
-            } else if (depth === 1 && newContext.appName && progressLogger) {
+            if (depth === 1 && newContext.appName && progressLogger) {
                 progressLogger.markAppCompleted(newContext.appName);
                 await progressLogger.save();
             }
@@ -149,9 +124,5 @@ export async function batchCropRecursive(
         }
     }
 
-    // Completion check for flat structure (no Variant folder, just App/Images)
-    if (depth === 2 && context.appName && context.variantName === "default" && folderContainsImages && progressLogger) {
-        progressLogger.markVariantCompleted(context.appName, context.variantName);
-        await progressLogger.save();
-    }
+    // Final completion log is now handled by the recursion exit at depth 1
 }

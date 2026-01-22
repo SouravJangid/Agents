@@ -10,7 +10,6 @@ class ProgressLogger {
     constructor(agentName) {
         this.agentName = agentName;
         this.apps = {};
-        this.variants = {};
         this.images = {};
         this.runs = [];
         this.errors = [];
@@ -30,7 +29,6 @@ class ProgressLogger {
         const baseLogsDir = path.resolve(cwd, config.paths.logsDir);
         this.logsDir = path.join(baseLogsDir, 'index');
         this.appsFile = path.join(this.logsDir, 'apps.json');
-        this.variantsFile = path.join(this.logsDir, 'variants.json');
         this.imagesFile = path.join(this.logsDir, 'images.json');
         this.runsFile = path.join(this.logsDir, 'runs.json');
         this.errorsFile = path.join(this.logsDir, 'errors.json');
@@ -39,7 +37,6 @@ class ProgressLogger {
     async init() {
         await fs.ensureDir(this.logsDir);
         if (await fs.pathExists(this.appsFile)) this.apps = await fs.readJson(this.appsFile);
-        if (await fs.pathExists(this.variantsFile)) this.variants = await fs.readJson(this.variantsFile);
         if (await fs.pathExists(this.imagesFile)) this.images = await fs.readJson(this.imagesFile);
         if (await fs.pathExists(this.runsFile)) this.runs = await fs.readJson(this.runsFile);
         if (await fs.pathExists(this.errorsFile)) this.errors = await fs.readJson(this.errorsFile);
@@ -48,7 +45,6 @@ class ProgressLogger {
     async save() {
         await fs.ensureDir(this.logsDir);
         await fs.outputJson(this.appsFile, this.apps, { spaces: 2 });
-        await fs.outputJson(this.variantsFile, this.variants, { spaces: 2 });
         await fs.outputJson(this.imagesFile, this.images, { spaces: 2 });
         await fs.outputJson(this.runsFile, this.runs, { spaces: 2 });
         await fs.outputJson(this.errorsFile, this.errors, { spaces: 2 });
@@ -91,23 +87,6 @@ class ProgressLogger {
     isAppCompleted(appName) {
         const key = this._getKey('app', appName);
         return this.apps[key] && this.apps[key].status === 'completed';
-    }
-
-    markVariantStarted(appName, variantName) {
-        const key = this._getKey('variant', appName, variantName);
-        if (!this.variants[key] || this.variants[key].status !== 'completed') {
-            this.variants[key] = { agent: this.agentName, status: 'running', last_active: new Date().toISOString() };
-        }
-    }
-
-    markVariantCompleted(appName, variantName) {
-        const key = this._getKey('variant', appName, variantName);
-        this.variants[key] = { agent: this.agentName, status: 'completed', completed_at: new Date().toISOString() };
-    }
-
-    isVariantCompleted(appName, variantName) {
-        const key = this._getKey('variant', appName, variantName);
-        return this.variants[key] && this.variants[key].status === 'completed';
     }
 
     markImageProcessed(imagePath) {

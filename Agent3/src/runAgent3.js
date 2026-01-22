@@ -52,11 +52,15 @@ async function main() {
     console.log(`📍 Final:  ${finalDir}`);
     console.log("------------------------------------------");
 
+    const startTime = Date.now();
+
     try {
         await progressLogger.addRunEntry({ action: "start_batch" });
         await runAgent3Batch(activeConfig, progressLogger);
         await progressLogger.addRunEntry({ action: "complete_batch", status: "success" });
-        console.log("\n✅ Agent3 processing completed successfully.");
+
+        const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+        console.log(`\n✅ Agent3 processing completed successfully in ${duration}s.`);
     } catch (err) {
         console.error("\n❌ Fatal error in Agent3:", err.message);
         await progressLogger.logError(err, { action: "complete_batch" });

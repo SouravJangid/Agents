@@ -67,13 +67,28 @@ export async function runAgent3Batch(config, progressLogger = null) {
 
             // --- A. Handle Directories ---
             if (entry.isDirectory()) {
-                // Depth tracking helps identify which App/Variant we are in for logging
+                // Depth tracking helps identify which App we are in for logging
                 let newContext = { ...context };
                 if (depth === 1) newContext.appName = entry.name;
-                if (depth === 2) newContext.variantName = entry.name;
+
+                // Tracking and Skip Logic
+                if (progressLogger && depth === 1) {
+                    if (progressLogger.isAppCompleted(newContext.appName)) {
+                        console.log(`Skipping completed App: ${newContext.appName}`);
+                        continue;
+                    }
+                    progressLogger.markAppStarted(newContext.appName);
+                    await progressLogger.save();
+                }
 
                 await fs.ensureDir(destinationPath);
                 await processDirectoryRecursively(fullPath, depth + 1, newContext);
+
+                // Mark Completion
+                if (progressLogger && depth === 1) {
+                    progressLogger.markAppCompleted(newContext.appName);
+                    await progressLogger.save();
+                }
                 continue;
             }
 

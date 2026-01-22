@@ -34,9 +34,24 @@ export async function processDirectoryRecursive(
         // 1. Directory Traversal
         if (entry.isDirectory()) {
             if (depth === 1) newContext.appName = entry.name;
-            if (depth === 2) newContext.variantName = entry.name;
+
+            // Tracking and Skip Logic
+            if (progressLogger && depth === 1) {
+                if (progressLogger.isAppCompleted(newContext.appName)) {
+                    console.log(`Skipping completed App: ${newContext.appName}`);
+                    continue;
+                }
+                progressLogger.markAppStarted(newContext.appName);
+                await progressLogger.save();
+            }
 
             await processDirectoryRecursive(fullPath, config, processedFiles, depth + 1, newContext, progressLogger);
+
+            // Mark Completion
+            if (progressLogger && depth === 1) {
+                progressLogger.markAppCompleted(newContext.appName);
+                await progressLogger.save();
+            }
             continue;
         }
 
