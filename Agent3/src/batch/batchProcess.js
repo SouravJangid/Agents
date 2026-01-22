@@ -59,8 +59,13 @@ export async function runAgent3Batch(config, progressLogger = null) {
      */
     async function processDirectoryRecursively(currentSrcDir, depth = 0, context = { appName: null, variantName: null }) {
         const entries = await fs.readdir(currentSrcDir, { withFileTypes: true });
-
-        for (const entry of entries) {
+        const filteredEntries = entries.filter(entry => {
+            // Skip all hidden files/folders and macOS metadata
+            return !entry.name.startsWith('.') &&
+                !entry.name.startsWith('._') &&
+                entry.name !== '__MACOSX';
+        });
+        for (const entry of filteredEntries) {
             const fullPath = path.join(currentSrcDir, entry.name);
             const relativePath = path.relative(sourceDir, fullPath);
             const destinationPath = path.join(finalDir, relativePath);

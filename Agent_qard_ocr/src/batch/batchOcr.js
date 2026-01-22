@@ -25,9 +25,16 @@ export async function processDirectoryRecursive(
     }
 
     let entries = await fs.readdir(dir, { withFileTypes: true });
-    entries.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+    // Filter out macOS metadata files and hidden files/folders
+    const filteredEntries = entries.filter(entry => {
+        // Skip all hidden files/folders and macOS metadata
+        return !entry.name.startsWith('.') &&
+            !entry.name.startsWith('._') &&
+            entry.name !== '__MACOSX';
+    });
 
-    for (const entry of entries) {
+    filteredEntries.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+    for (const entry of filteredEntries) {
         const fullPath = path.join(dir, entry.name);
         let newContext = { ...context };
 
