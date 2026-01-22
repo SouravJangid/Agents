@@ -26,16 +26,16 @@ export async function batchCropRecursive(
     const entries = await fs.readdir(currentUploadDir, {
         withFileTypes: true
     });
-    const filteredEntries = entries.filter(entry => {
-        // Skip all hidden files/folders and macOS metadata
-        return !entry.name.startsWith('.') &&
-            !entry.name.startsWith('._') &&
-            entry.name !== '__MACOSX';
-    });
+
     // Determine if this directory directly contains images
     const folderContainsImages = entries.some(e => e.isFile() && validExt.includes(path.extname(e.name).toLowerCase()));
 
-    for (const entry of filteredEntries) {
+    for (const entry of entries) {
+        // --- 0. SKIP HIDDEN FILES (macOS ._ and .DS_Store) and other system files ---
+        if (entry.name.startsWith('.') || entry.name.startsWith('._') || entry.name === '__MACOSX') {
+            continue;
+        }
+
         const uploadPath = path.join(currentUploadDir, entry.name);
         const relativePath = path.relative(uploadRoot, uploadPath);
         const outputPath = path.join(outputRoot, relativePath);

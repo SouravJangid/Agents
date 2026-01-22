@@ -28,8 +28,9 @@ export async function runAgent3Batch(config, progressLogger = null) {
     console.log(`Starting Agent3 Batch Processing (Blur Mode)...`);
 
     // 4. Map Detections by Image Path
-    // The index is organized by Keyword; we need it organized by File Path for efficient processing
     const detectionsByPath = {};
+    let totalDetectionsInIndex = 0;
+
     for (const keyword in index) {
         const kwData = index[keyword];
         if (!kwData.platforms) continue;
@@ -44,30 +45,44 @@ export async function runAgent3Batch(config, progressLogger = null) {
                         const relPath = imgData["relative_path"];
                         if (!relPath) continue;
                         if (!detectionsByPath[relPath]) detectionsByPath[relPath] = [];
-                        // Store detected coordinates for this specific image
                         detectionsByPath[relPath].push(...imgData.detections);
+                        totalDetectionsInIndex += imgData.detections.length;
                     }
                 }
             }
         }
     }
 
+    console.log(`📊 Index Loaded: ${Object.keys(detectionsByPath).length} unique image paths found.`);
+    console.log(`📊 Total individual detections to blur: ${totalDetectionsInIndex}`);
+
+    // DEBUG: Print first 3 keys to verify path structure
+    const sampleKeys = Object.keys(detectionsByPath).slice(0, 3);
+    console.log("🔍 DEBUG - Index Path Samples:", JSON.stringify(sampleKeys, null, 2));
+
     const VALID_EXT = ['.png', '.jpg', '.jpeg', '.webp'];
+
+    let hasLoggedSample = false;
 
     /**
      * Recursive function to maintain folder structure while processing images.
      */
     async function processDirectoryRecursively(currentSrcDir, depth = 0, context = { appName: null, variantName: null }) {
         const entries = await fs.readdir(currentSrcDir, { withFileTypes: true });
-        const filteredEntries = entries.filter(entry => {
-            // Skip all hidden files/folders and macOS metadata
-            return !entry.name.startsWith('.') &&
-                !entry.name.startsWith('._') &&
-                entry.name !== '__MACOSX';
-        });
-        for (const entry of filteredEntries) {
+        for (const entry of entries) {
+            // --- 0. SKIP HIDDEN FILES (macOS ._ and .DS_Store) and other system files ---
+            if (entry.name.startsWith('.') || entry.name.startsWith('._') || entry.name === '__MACOSX') {
+                continue;
+            }
+
             const fullPath = path.join(currentSrcDir, entry.name);
             const relativePath = path.relative(sourceDir, fullPath);
+
+            if (!hasLoggedSample && entry.isFile() && VALID_EXT.includes(path.extname(entry.name).toLowerCase())) {
+                console.log(`🔍 DEBUG - Current File Sample Path: "${relativePath}"`);
+                hasLoggedSample = true;
+            }
+
             const destinationPath = path.join(finalDir, relativePath);
 
             // --- A. Handle Directories ---
@@ -101,6 +116,13 @@ export async function runAgent3Batch(config, progressLogger = null) {
             if (entry.isFile() && VALID_EXT.includes(path.extname(entry.name).toLowerCase())) {
                 const detections = detectionsByPath[relativePath] || [];
 
+                // --- DEEP DEBUG ---
+                if (detections.length === 0) {
+                    // console.log(`ℹ️ No index match for: ${relativePath}`);
+                } else {
+                    console.log(`🎯 Match found! ${relativePath} has ${detections.length} detections.`);
+                }
+
                 // Resume check: Skip if already processed by Agent 3
                 if (progressLogger && progressLogger.isImageProcessed(fullPath)) {
                     continue;
@@ -115,7 +137,7 @@ export async function runAgent3Batch(config, progressLogger = null) {
                         if (result) {
                             // Save the blurred result to the final delivery directory
                             await fs.writeFile(destinationPath, result.replaced);
-                            console.log(`✅ Blurred: ${relativePath}`);
+                            console.log(`✅ Blurred & Saved: ${relativePath}`);
 
                             if (progressLogger) {
                                 progressLogger.markImageProcessed(fullPath);

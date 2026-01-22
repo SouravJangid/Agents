@@ -1,15 +1,16 @@
-import fs from 'fs-extra';
-import path from 'path';
-import { runOcrAgent } from '../agent/ocrAgent.js';
-import { updateKeywordIndex } from '../utils/indexStore.js';
-import { unzip } from '../utils/zipUtils.js';
-import { initWorker, terminateWorker } from '../services/ocrService.js';
+import fs from "fs-extra";
+import path from "path";
+import { runOcrAgent } from "../agent/ocrAgent.js";
+import { updateKeywordIndex } from "../utils/indexStore.js";
+import { initWorker, terminateWorker } from "../services/ocrService.js";
+import { unzip } from "../utils/zipUtils.js";
 
-const VALID_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp'];
+const VALID_EXT = ['.png', '.jpg', '.jpeg', '.webp'];
 const ZIP_EXT = '.zip';
 
 /**
- * Recursively runs OCR on images in the directory.
+ * Recursively scans directories for images and runs OCR.
+ * Identifies App and Variant context for the index.
  */
 export async function processDirectoryRecursive(
     dir,
@@ -25,16 +26,14 @@ export async function processDirectoryRecursive(
     }
 
     let entries = await fs.readdir(dir, { withFileTypes: true });
-    // Filter out macOS metadata files and hidden files/folders
-    const filteredEntries = entries.filter(entry => {
-        // Skip all hidden files/folders and macOS metadata
-        return !entry.name.startsWith('.') &&
-            !entry.name.startsWith('._') &&
-            entry.name !== '__MACOSX';
-    });
+    entries.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
 
-    filteredEntries.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
-    for (const entry of filteredEntries) {
+    for (const entry of entries) {
+        // --- 0. SKIP HIDDEN FILES (macOS ._ and .DS_Store) and other system files ---
+        if (entry.name.startsWith('.') || entry.name.startsWith('._') || entry.name === '__MACOSX') {
+            continue;
+        }
+
         const fullPath = path.join(dir, entry.name);
         let newContext = { ...context };
 
@@ -80,21 +79,22 @@ export async function processDirectoryRecursive(
         }
 
         // 3. Image Processing
-        if (entry.isFile() && VALID_EXTENSIONS.includes(path.extname(entry.name).toLowerCase())) {
+        if (entry.isFile() && VALID_EXT.includes(path.extname(entry.name).toLowerCase())) {
 
             // Resume Check
-            if (progressLogger && progressLogger.isImageProcessed(fullPath)) continue;
+            if (progressLogger && progressLogger.isImageProcessed(fullPath)) {
+                continue;
+            }
 
-            console.log(`🔍 Processing: ${entry.name}`);
             try {
-                // Perform OCR
+                // Run OCR Agent
                 const result = await runOcrAgent(fullPath, config);
 
-                // Use the indexing path from config (Passed down from runOcr.js)
-                const indexPath = config.paths.indexFile;
-                if (!indexPath) throw new Error("config.paths.indexFile is missing in batch!");
-
-                await updateKeywordIndex(indexPath, result, config.ocr.keywords, config);
+                if (result.status === "matched") {
+                    console.log(`✨ Match: ${entry.name} -> ${result.keywordMatches.map(m => m.keyword).join(', ')}`);
+                    // Save results to the keyword index
+                    await updateKeywordIndex(config.paths.indexFile, result, config.ocr.keywords, config);
+                }
 
                 if (progressLogger) {
                     progressLogger.markImageProcessed(fullPath);

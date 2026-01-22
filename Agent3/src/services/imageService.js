@@ -27,7 +27,12 @@ export async function processImageBlur(imagePath, detections, config) {
     // 5. Loop through every word detection provided by Agent 2
     for (const detection of detections) {
         // Skip this detection if it doesn't contain our target keyword (case-insensitive)
-        if (!detection.text.toLowerCase().includes(targetWord.toLowerCase())) continue;
+        if (!detection.text.toLowerCase().includes(targetWord.toLowerCase())) {
+            console.log(`  ⏩ Skipping detection: "${detection.text}" (does not match targetWord: "${targetWord}")`);
+            continue;
+        }
+
+        console.log(`  🔥 BLURRING: "${detection.text}" at ${JSON.stringify(detection.bbox_refined)}`);
 
         // Extract the refined bounding box (the exact coordinates of the word)
         const { bbox_refined } = detection;
