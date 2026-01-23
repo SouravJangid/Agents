@@ -42,8 +42,15 @@ export async function runAgent3Batch(config, progressLogger = null) {
                 const variants = appData.variants;
                 for (const variantId in variants) {
                     for (const imgData of variants[variantId]) {
-                        const relPath = imgData["relative_path"];
+                        let relPath = imgData["relative_path"];
                         if (!relPath) continue;
+
+                        // --- OPTION A: NORMALIZATION ---
+                        // Strip 'latest/' prefix if present to match the source folder's relative structure
+                        if (relPath.startsWith('latest/')) {
+                            relPath = relPath.substring(7); // Remove 'latest/'
+                        }
+
                         if (!detectionsByPath[relPath]) detectionsByPath[relPath] = [];
                         detectionsByPath[relPath].push(...imgData.detections);
                         totalDetectionsInIndex += imgData.detections.length;
@@ -58,11 +65,13 @@ export async function runAgent3Batch(config, progressLogger = null) {
 
     // DEBUG: Print first 3 keys to verify path structure
     const sampleKeys = Object.keys(detectionsByPath).slice(0, 3);
-    console.log("🔍 DEBUG - Index Path Samples:", JSON.stringify(sampleKeys, null, 2));
+    console.log("🔍 DEBUG - Normalized Index Path Samples:", JSON.stringify(sampleKeys, null, 2));
 
     const VALID_EXT = ['.png', '.jpg', '.jpeg', '.webp'];
 
     let hasLoggedSample = false;
+    let imagesProcessedCount = 0;
+    const stats = { total: 0, blurred: 0, copied: 0 };
 
     /**
      * Recursive function to maintain folder structure while processing images.
@@ -137,11 +146,18 @@ export async function runAgent3Batch(config, progressLogger = null) {
                         if (result) {
                             // Save the blurred result to the final delivery directory
                             await fs.writeFile(destinationPath, result.replaced);
-                            console.log(`✅ Blurred & Saved: ${relativePath}`);
+                            stats.blurred++;
+                            imagesProcessedCount++;
+                            console.log(`[${imagesProcessedCount}] ✅ Blurred & Saved: ${relativePath}`);
 
                             if (progressLogger) {
                                 progressLogger.markImageProcessed(fullPath);
                                 await progressLogger.save();
+                            }
+
+                            if (imagesProcessedCount % 100 === 0) {
+                                console.log(`\n⏳ Progress Update: Processed ${imagesProcessedCount} images...`);
+                                console.log(`📈 Stats: ${stats.blurred} Blurred, ${stats.copied} Copied As-Is\n`);
                             }
                             continue;
                         }
@@ -149,6 +165,13 @@ export async function runAgent3Batch(config, progressLogger = null) {
 
                     // For images without matches, we just copy them as-is to the final output
                     await fs.copy(fullPath, destinationPath);
+                    stats.copied++;
+                    imagesProcessedCount++;
+
+                    if (imagesProcessedCount % 100 === 0) {
+                        console.log(`\n⏳ Progress Update: Processed ${imagesProcessedCount} images...`);
+                        console.log(`📈 Stats: ${stats.blurred} Blurred, ${stats.copied} Copied As-Is\n`);
+                    }
 
                     if (progressLogger) {
                         progressLogger.markImageProcessed(fullPath);
