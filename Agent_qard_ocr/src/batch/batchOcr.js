@@ -65,14 +65,34 @@ export async function processDirectoryRecursive(
         if (entry.isFile() && path.extname(entry.name).toLowerCase() === ZIP_EXT) {
             const folderName = entry.name.slice(0, -ZIP_EXT.length);
             const tempUnzipDir = path.join(dir, folderName);
+
+            // If we are at Depth 1, this ZIP represents an APP
+            if (depth === 1) {
+                newContext.appName = folderName;
+                if (progressLogger && progressLogger.isAppCompleted(newContext.appName)) {
+                    console.log(`Skipping completed App (ZIP): ${newContext.appName}`);
+                    continue;
+                }
+                if (progressLogger) {
+                    progressLogger.markAppStarted(newContext.appName);
+                    await progressLogger.save();
+                }
+            }
+
             if (!await fs.pathExists(tempUnzipDir)) {
                 try {
                     unzip(fullPath, tempUnzipDir);
-                    await processDirectoryRecursive(tempUnzipDir, config, processedFiles, depth, context, progressLogger);
+                    await processDirectoryRecursive(tempUnzipDir, config, processedFiles, depth, newContext, progressLogger);
                     await fs.remove(tempUnzipDir);
+
+                    // Mark App Completion if this was a Depth 1 ZIP
+                    if (depth === 1 && newContext.appName && progressLogger) {
+                        progressLogger.markAppCompleted(newContext.appName);
+                        await progressLogger.save();
+                    }
                 } catch (err) {
                     console.error(`Failed ZIP: ${entry.name}`, err.message);
-                    if (progressLogger) await progressLogger.logError(err, { ...context, action: 'unzip', zipPath: fullPath });
+                    if (progressLogger) await progressLogger.logError(err, { ...newContext, action: 'unzip', zipPath: fullPath });
                 }
             }
             continue;

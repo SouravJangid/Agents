@@ -76,6 +76,19 @@ export async function batchCropRecursive(
             const unzipDirName = entry.name.replace(new RegExp(zipExt + '$', 'i'), "");
             const unzipDirPath = path.join(currentUploadDir, unzipDirName);
 
+            // If we are at Depth 1, this ZIP represents an APP
+            if (depth === 1) {
+                newContext.appName = unzipDirName;
+                if (progressLogger && progressLogger.isAppCompleted(newContext.appName)) {
+                    console.log(`Skipping completed App (ZIP): ${newContext.appName}`);
+                    continue;
+                }
+                if (progressLogger) {
+                    progressLogger.markAppStarted(newContext.appName);
+                    await progressLogger.save();
+                }
+            }
+
             // Avoid unzipping if the target folder already exists (prevents infinite loops/redundancy)
             const folderExists = entries.some(e => e.isDirectory() && e.name === unzipDirName);
             if (folderExists) {
@@ -86,12 +99,20 @@ export async function batchCropRecursive(
             console.log(`Unzipping archive: ${entry.name}`);
             try {
                 await unzip(uploadPath, unzipDirPath);
-                await batchCropRecursive(unzipDirPath, outputRoot, depth, context, progressLogger, activeConfig);
+                // We pass depth=depth (not depth+1) because the unzip folder usually contains the actual app content
+                // But we pass newContext so the app name is preserved
+                await batchCropRecursive(unzipDirPath, outputRoot, depth, newContext, progressLogger, activeConfig);
                 await fs.remove(unzipDirPath); // Clean up unzip folder after processing
+
+                // Mark App Completion if this was a Depth 1 ZIP
+                if (depth === 1 && newContext.appName && progressLogger) {
+                    progressLogger.markAppCompleted(newContext.appName);
+                    await progressLogger.save();
+                }
             } catch (err) {
                 console.error(`Error processing zip ${entry.name}:`, err.message);
                 if (progressLogger) {
-                    await progressLogger.logError(err, { ...context, action: 'unzip', zipPath: uploadPath });
+                    await progressLogger.logError(err, { ...newContext, action: 'unzip', zipPath: uploadPath });
                 }
             }
             continue;
