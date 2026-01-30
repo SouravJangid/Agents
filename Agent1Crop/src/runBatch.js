@@ -51,10 +51,12 @@ async function start() {
         // Pass the local config for processing settings (crop profiles)
         await batchCropRecursive(uploadDir, latestOutputDir, 0, { appName: null, variantName: null }, progressLogger, config);
         await progressLogger.addRunEntry({ action: "complete_batch", status: "success" });
+        await progressLogger.save(); // Force sync to legacy JSON
     } catch (err) {
         console.error("Batch processing failed:", err.message);
         await progressLogger.logError(err, { action: "complete_batch" });
         await progressLogger.addRunEntry({ action: "complete_batch", status: "failed", error: err.message });
+        await progressLogger.save(); // Force sync to legacy JSON
     }
 
     const endTime = Date.now();

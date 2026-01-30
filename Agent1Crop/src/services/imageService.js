@@ -2,6 +2,9 @@ import sharp from "sharp";
 import fs from "fs";
 import path from "path";
 
+// Disable sharp cache for large batch processing to prevent memory growth
+sharp.cache(false);
+
 /**
  * Crops bottom portion of image (percentage-based).
  * Performs a straight crop without adjusting quality settings.

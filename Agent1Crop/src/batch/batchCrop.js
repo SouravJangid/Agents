@@ -1,12 +1,15 @@
 import fs from "fs-extra";
 import path from "path";
+import os from "os";
 import { runCropAgent } from "../agent/cropAgent.js";
 import { unzip } from "../utils/zipUtils.js";
 
+// Limit concurrency to avoid overloading disk I/O and CPU
+const CONCURRENCY_LIMIT = Math.max(1, os.cpus().length - 1);
 
 /**
  * Recursively traverses the upload directory to find and process images.
- * It identifies the hierarchy as: Platform -> App (Depth 1) -> Variant (Depth 2) -> Images.
+ * Optimized for 500GB+ datasets with parallel I/O.
  */
 export async function batchCropRecursive(
     currentUploadDir,
@@ -27,128 +30,124 @@ export async function batchCropRecursive(
         withFileTypes: true
     });
 
-    // Determine if this directory directly contains images
-    const folderContainsImages = entries.some(e => e.isFile() && validExt.includes(path.extname(e.name).toLowerCase()));
+    const tasks = [];
+    const subdirectories = [];
+    const imageFiles = [];
+    const zipFiles = [];
 
+    // Categorize entries
     for (const entry of entries) {
-        // --- 0. SKIP HIDDEN FILES (macOS ._ and .DS_Store) and other system files ---
+        // --- 0. SKIP HIDDEN FILES (macOS ._ and .DS_Store) ---
         if (entry.name.startsWith('.') || entry.name.startsWith('._') || entry.name === '__MACOSX') {
             continue;
         }
 
+        if (entry.isDirectory()) {
+            subdirectories.push(entry);
+        } else if (entry.isFile()) {
+            const ext = path.extname(entry.name).toLowerCase();
+            if (ext === zipExt) {
+                zipFiles.push(entry);
+            } else if (validExt.includes(ext)) {
+                imageFiles.push(entry);
+            }
+        }
+    }
+
+    // 1. Process Subdirectories (Sequential recursion to preserve app-level logging logic)
+    for (const entry of subdirectories) {
+        let newContext = { ...context };
         const uploadPath = path.join(currentUploadDir, entry.name);
         const relativePath = path.relative(uploadRoot, uploadPath);
         const outputPath = path.join(outputRoot, relativePath);
 
+        if (depth === 1) {
+            newContext.appName = entry.name;
+            if (progressLogger && progressLogger.isAppCompleted(newContext.appName)) {
+                console.log(`Skipping completed App: ${newContext.appName}`);
+                continue;
+            }
+            if (progressLogger) {
+                await progressLogger.markAppStarted(newContext.appName);
+            }
+        }
+
+        await fs.ensureDir(outputPath);
+        await batchCropRecursive(uploadPath, outputRoot, depth + 1, newContext, progressLogger, activeConfig);
+
+        if (depth === 1 && newContext.appName && progressLogger) {
+            await progressLogger.markAppCompleted(newContext.appName);
+        }
+    }
+
+    // 2. Process ZIP Archives (Sequential because they usually contain their own structure)
+    for (const entry of zipFiles) {
         let newContext = { ...context };
+        const uploadPath = path.join(currentUploadDir, entry.name);
+        const unzipDirName = entry.name.replace(new RegExp(zipExt + '$', 'i'), "");
+        const unzipDirPath = path.join(currentUploadDir, unzipDirName);
 
-        // --- 1. Handle Subdirectories ---
-        if (entry.isDirectory()) {
-            if (depth === 1) {
-                // We've found an App folder (e.g. "Airbnb")
-                newContext.appName = entry.name;
-                if (progressLogger && progressLogger.isAppCompleted(newContext.appName)) {
-                    console.log(`Skipping completed App: ${newContext.appName}`);
-                    continue;
-                }
-                if (progressLogger) {
-                    progressLogger.markAppStarted(newContext.appName);
-                    await progressLogger.save();
-                }
+        if (depth === 1) {
+            newContext.appName = unzipDirName;
+            if (progressLogger && progressLogger.isAppCompleted(newContext.appName)) {
+                continue;
             }
+            if (progressLogger) {
+                await progressLogger.markAppStarted(newContext.appName);
+            }
+        }
 
-            // Ensure output directory mirrors the source structure
-            await fs.ensureDir(outputPath);
-            // Recurse deeper into the directory tree
-            await batchCropRecursive(uploadPath, outputRoot, depth + 1, newContext, progressLogger, activeConfig);
+        const folderExists = entries.some(e => e.isDirectory() && e.name === unzipDirName);
+        if (folderExists) {
+            console.log(`Skipping ZIP file because folder already exists: ${entry.name}`);
+            continue;
+        }
 
-            // Mark completion in logs after recursion finishes
+        console.log(`Unzipping archive: ${entry.name}`);
+        try {
+            await unzip(uploadPath, unzipDirPath);
+            await batchCropRecursive(unzipDirPath, outputRoot, depth, newContext, progressLogger, activeConfig);
+            await fs.remove(unzipDirPath);
+
             if (depth === 1 && newContext.appName && progressLogger) {
-                progressLogger.markAppCompleted(newContext.appName);
-                await progressLogger.save();
+                await progressLogger.markAppCompleted(newContext.appName);
             }
-
-            continue;
+        } catch (err) {
+            console.error(`Error processing zip ${entry.name}:`, err.message);
+            if (progressLogger) {
+                await progressLogger.logError(err, { ...newContext, action: 'unzip', zipPath: uploadPath });
+            }
         }
+    }
 
-        // --- 2. Handle ZIP Archives ---
-        if (entry.isFile() && path.extname(entry.name).toLowerCase() === zipExt) {
-            const unzipDirName = entry.name.replace(new RegExp(zipExt + '$', 'i'), "");
-            const unzipDirPath = path.join(currentUploadDir, unzipDirName);
+    // 3. Process Single Images (PARALLEL)
+    console.log(`Processing ${imageFiles.length} images in ${currentUploadDir} (Concurrency: ${CONCURRENCY_LIMIT})`);
 
-            // If we are at Depth 1, this ZIP represents an APP
-            if (depth === 1) {
-                newContext.appName = unzipDirName;
-                if (progressLogger && progressLogger.isAppCompleted(newContext.appName)) {
-                    console.log(`Skipping completed App (ZIP): ${newContext.appName}`);
-                    continue;
-                }
-                if (progressLogger) {
-                    progressLogger.markAppStarted(newContext.appName);
-                    await progressLogger.save();
-                }
-            }
+    for (let i = 0; i < imageFiles.length; i += CONCURRENCY_LIMIT) {
+        const chunk = imageFiles.slice(i, i + CONCURRENCY_LIMIT);
+        await Promise.all(chunk.map(async (entry) => {
+            const uploadPath = path.join(currentUploadDir, entry.name);
+            const relativePath = path.relative(uploadRoot, uploadPath);
+            const outputPath = path.join(outputRoot, relativePath);
 
-            // Avoid unzipping if the target folder already exists (prevents infinite loops/redundancy)
-            const folderExists = entries.some(e => e.isDirectory() && e.name === unzipDirName);
-            if (folderExists) {
-                console.log(`Skipping ZIP file because folder already exists: ${entry.name}`);
-                continue;
-            }
-
-            console.log(`Unzipping archive: ${entry.name}`);
-            try {
-                await unzip(uploadPath, unzipDirPath);
-                // We pass depth=depth (not depth+1) because the unzip folder usually contains the actual app content
-                // But we pass newContext so the app name is preserved
-                await batchCropRecursive(unzipDirPath, outputRoot, depth, newContext, progressLogger, activeConfig);
-                await fs.remove(unzipDirPath); // Clean up unzip folder after processing
-
-                // Mark App Completion if this was a Depth 1 ZIP
-                if (depth === 1 && newContext.appName && progressLogger) {
-                    progressLogger.markAppCompleted(newContext.appName);
-                    await progressLogger.save();
-                }
-            } catch (err) {
-                console.error(`Error processing zip ${entry.name}:`, err.message);
-                if (progressLogger) {
-                    await progressLogger.logError(err, { ...newContext, action: 'unzip', zipPath: uploadPath });
-                }
-            }
-            continue;
-        }
-
-        // --- 3. Handle Single Images ---
-        if (entry.isFile()) {
-            const ext = path.extname(entry.name).toLowerCase();
-            if (!validExt.includes(ext)) continue; // Skip non-image files
-
-            // Resume check: Skip if already processed by this agent
             if (progressLogger && progressLogger.isImageProcessed(uploadPath)) {
-                continue;
+                return;
             }
 
             await fs.ensureDir(path.dirname(outputPath));
 
             try {
-                // Call the Crop Agent to process the individual image
                 await runCropAgent(uploadPath, { outputOverride: outputPath });
-                console.log(`Successfully Cropped: ${relativePath}`);
-
-                // Success log for resumption
                 if (progressLogger) {
-                    progressLogger.markImageProcessed(uploadPath);
-                    await progressLogger.save();
+                    await progressLogger.markImageProcessed(uploadPath);
                 }
             } catch (err) {
                 console.error(`Crop Failed: ${relativePath}`, err.message);
                 if (progressLogger) {
-                    progressLogger.markImageFailed(uploadPath, err.message);
+                    await progressLogger.markImageFailed(uploadPath, err.message);
                     await progressLogger.logError(err, { ...context, action: 'crop', imagePath: uploadPath });
                 }
             }
-        }
+        }));
     }
-
-    // Final completion log is now handled by the recursion exit at depth 1
 }
